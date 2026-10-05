@@ -43,6 +43,15 @@ describe('LiveSession', () => {
     expect(c.inputAudioTranscription).toEqual({});
   });
 
+  it('arama açıkken bağlam sınırı en az 16k (8k arama sonuçlarına dar geliyor)', async () => {
+    const ai2 = fakeAi();
+    const w = new LiveSession({ config: { ...cfg, googleSearch: true, contextLimit: 8000 }, ai: ai2 });
+    await w.start(); await tick();
+    expect(ai2.conns[0].config.contextWindowCompression.triggerTokens).toBe('16000');
+    expect(ai2.conns[0].config.tools.some((t) => t.googleSearch)).toBe(true);
+    w.stop();
+  });
+
   it('PCM sesi base64 + 16 kHz mime ile gönderir', () => {
     s.sendAudio(new Int16Array([1, -1]));
     expect(ai.conns[0].sent[0].audio).toEqual({ data: Buffer.from([1, 0, 255, 255]).toString('base64'), mimeType: 'audio/pcm;rate=16000' });

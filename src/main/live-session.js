@@ -90,7 +90,8 @@ export class LiveSession extends EventEmitter {
       // Ücretsiz katmanda googleSearch açıkken bağlantı anında 1011 "quota" ile kapanıyor (2026-10-05) → varsayılan kapalı.
       tools: [{ functionDeclarations: this.#toolset.declarations }, ...(this.#cfg.googleSearch ? [{ googleSearch: {} }] : [])],
       // 15 dk sınırını kaldırır ve maliyete tavan koyar (bkz. config.contextLimit).
-      contextWindowCompression: { triggerTokens: String(this.#cfg.contextLimit ?? 8000), slidingWindow: {} },
+      // Arama sonuçları bağlama eklenir: 8k'da ilk sıkıştırmada 1007 "invalid argument" (ölçüldü 2026-10-05) → aramayla en az 16k.
+      contextWindowCompression: { triggerTokens: String(this.#cfg.googleSearch ? Math.max(this.#cfg.contextLimit ?? 8000, 16000) : (this.#cfg.contextLimit ?? 8000)), slidingWindow: {} },
       sessionResumption: this.#handle ? { handle: this.#handle } : {},
     };
   }
