@@ -85,6 +85,25 @@ describe('LiveSession', () => {
     expect(resp.functionResponses[1].response.hata).toMatch(/Bilinmeyen/);
   });
 
+  it('bekçi: araç sonucundan sonra model susarsa bir kez dürter; model konuşursa dürtmez', async () => {
+    const w = new LiveSession({ config: { ...cfg, watchdogMs: 30 }, ai });
+    await w.start();
+    await tick();
+    const conn = ai.conns.at(-1);
+    const fired = [];
+    w.on('watchdog', (e) => fired.push(e));
+    conn.callbacks.onmessage({ toolCall: { functionCalls: [{ id: 'a', name: 'get_current_time', args: {} }] } });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(fired).toHaveLength(1);
+    expect(conn.sent.at(-1).text).toMatch(/Araç sonucu geldi/);
+    conn.callbacks.onmessage({ toolCall: { functionCalls: [{ id: 'b', name: 'get_current_time', args: {} }] } });
+    await tick();
+    conn.callbacks.onmessage({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm', data: 'AA==' } }] } } });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(fired).toHaveLength(1);
+    w.stop();
+  });
+
   it('goAway gelince son handle ile yeniden bağlanır, eski bağlantının kapanışı hata üretmez', async () => {
     const errors = [];
     s.on('error', (e) => errors.push(e));

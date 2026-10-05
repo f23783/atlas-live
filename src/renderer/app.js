@@ -75,6 +75,13 @@ window.atlas.onEvent(({ type, payload }) => {
     case 'tool':
       if (payload.phase === 'result') for (const t of payload.traces) { addChip(chipText(t)); lab.log(t); }
       break;
+    case 'userLive':
+      // İstemci sırası (ön-seçim, sesli): paralel dökümden canlı metin; balonun metni her seferinde yenilenir.
+      setUserLive(payload.text, payload.final);
+      break;
+    case 'watchdog':
+      lab.log({ name: 'bekci', mode: 'watchdog', ms: payload.ms, args: {}, response: { not: `Model ${payload.ms / 1000} sn sustu, dürtüldü.` } });
+      break;
     case 'timer':
       toast(`⏰ ${payload.label}: süre doldu.`);
       break;
@@ -143,6 +150,18 @@ function appendTranscript(role, text) {
   if (stick) scrollDown();
 }
 
+function setUserLive(text, final) {
+  if (!text) return;
+  const stick = nearBottom();
+  if (!turn.user) {
+    turn.user = bubble('user');
+    turn.model ? ui.transcript.insertBefore(turn.user, turn.model) : ui.transcript.append(turn.user);
+  }
+  turn.user.textContent = text;
+  turn.user.classList.toggle('live', !final);
+  if (stick) scrollDown();
+}
+
 function endTurn(cut) {
   for (const el of [turn.user, turn.model]) el?.classList.remove('live');
   if (cut && turn.model) turn.model.classList.add('cut');
@@ -205,7 +224,8 @@ function showCost(c, flash) {
   ui.cost.hidden = false;
   ui.cost.innerHTML = '';
   const b = (v) => Object.assign(document.createElement('b'), { textContent: tl.format(v) });
-  ui.cost.append('oturum ', b(c.session), ' · bugün ', b(c.today));
+  const lbl = (t) => Object.assign(document.createElement('span'), { className: 'lbl', textContent: t });
+  ui.cost.append(lbl('oturum '), b(c.session), ' · ', lbl('bugün '), b(c.today));
   ui.cost.title =
     `Bu ay: ${tl.format(c.month)}\n` +
     `Tahmini — ücretli katman fiyatıyla, gerçek token sayısından.\n` +
@@ -378,7 +398,7 @@ const lab = (() => {
     meta({
       direct: 'Doğrudan: Gemini dört aracın tanımını görür ve kendisi seçer.',
       jev: 'Jev: Gemini önce arac_bul der, aracı Jev seçer, sonra arac_calistir (iki tur).',
-      jev_pre: 'Ön-seçim: Jev cümleye Gemini\'den önce bakar, öneriyi mesaja ekler (tek tur). Şimdilik yalnız yazılı girişte.',
+      jev_pre: 'Ön-seçim: sen konuşurken paralel döküm yazıya çevirir, Jev bakar, gerekiyorsa Gemini\'ye tek satır ipucu verir. Sesli ve yazılı. Kulaklık önerilir.',
     }[i.toolMode] ?? i.toolMode);
     setBudget(i.cost?.jev);
   }
@@ -428,7 +448,7 @@ const lab = (() => {
       said.textContent = `“${t.jev.userText || '(ham cümle yok)'}”${t.args?.ihtiyac ? ` → Gemini'nin özeti: “${t.args.ihtiyac}”` : ' (ön-seçim, Gemini\'den önce)'}`;
       e.append(said, probBar(t.jev.probabilities));
     } else {
-      add('tag', t.name === 'arac_calistir' ? 'ÇALIŞTIR' : t.mode === 'direct' ? 'DOĞRUDAN' : 'ARAÇ');
+      add('tag', t.name === 'bekci' ? 'BEKÇİ' : t.name === 'arac_calistir' ? 'ÇALIŞTIR' : t.mode === 'direct' ? 'DOĞRUDAN' : 'ARAÇ');
       add('skill', label(t.skill ?? t.name));
       add('num', `${t.ms} ms${t.dryRun ? ' · kuru' : ''} · ${time}`);
       e.append(row);

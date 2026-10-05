@@ -50,6 +50,8 @@ export function loadConfig(env = loadEnv(), settings = {}) {
     // Araç seçimi: 'direct' (Gemini seçer) | 'jev' (arac_bul→Jev, iki tur) | 'jev_pre' (Jev önceden bakar). Bkz. tools/index.js
     toolMode: settings.toolMode ?? (['jev', 'jev_pre'].includes(env.ATLAS_TOOL_MODE) ? env.ATLAS_TOOL_MODE : 'direct'),
     typesafeKey: env.TYPESAFE_API_KEY || '',
+    // Araç sonucundan sonra model bu kadar ms susarsa dürt (0 = kapalı). Bkz. LiveSession#armWatchdog
+    watchdogMs: env.ATLAS_WATCHDOG_MS != null ? Number(env.ATLAS_WATCHDOG_MS) : 6000,
     // Fido'nun Jev için verdiği toplam bütçe (2026-10-05): $10. Defter: USER_DATA/jev-usage.json
     jevBudgetUsd: Number(env.ATLAS_JEV_BUDGET_USD) || 10,
     get systemInstruction() {

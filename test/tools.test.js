@@ -74,16 +74,17 @@ describe('buildToolset', () => {
 });
 
 describe('jev_pre (ön-seçim)', () => {
-  it('Gemini yalnız saat + arac_calistir görür, sistem notu var', () => {
-    const ts = buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('medya') });
-    expect(names(ts)).toEqual(['get_current_time', 'arac_calistir']);
-    expect(ts.systemNote).toMatch(/Araç önerisi/);
+  it('Gemini tüm araçları doğrudan görür ve çağırabilir', async () => {
+    const ts = buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('medya'), dryRun: true });
+    expect(names(ts)).toEqual(['get_current_time', 'zamanlayici', 'medya', 'hava_durumu', 'sistem_durumu']);
+    const r = await ts.run({ name: 'medya', args: { islem: 'ses_azalt' } });
+    expect(r.response).toMatchObject({ kuru: true, islem: 'ses_azalt' });
+    expect(r.trace.skill).toBe('medya');
   });
 
-  it('araç gerekiyorsa şemalı öneri notu üretir; gerekmiyorsa, emin değilse ya da Jev çökerse not yok', async () => {
+  it('araç gerekiyorsa kısa ipucu üretir; gerekmiyorsa, emin değilse ya da Jev çökerse ipucu yok', async () => {
     const yes = await buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('hava_durumu') }).preRoute('yarın şemsiye lazım mı');
-    expect(yes.note).toMatch(/"hava_durumu"/);
-    expect(yes.note).toMatch(/"sehir"/);
+    expect(yes.note).toBe('[İpucu: hava_durumu aracını kullan]');
     expect(yes.trace).toMatchObject({ name: 'on_secim', skill: 'hava_durumu' });
     expect((await buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('hicbiri') }).preRoute('fıkra anlat')).note).toBeNull();
     expect((await buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('medya', 0.3) }).preRoute('x')).note).toBeNull();

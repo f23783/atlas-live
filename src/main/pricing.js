@@ -9,6 +9,13 @@ export const PRICES = {
   thoughts: 4.5,
 };
 
+// gemini-3.5-transcribe-live ücretli katman, USD / 1M token (aynı sayfa, 2026-10-05): ses girdi $3,50, metin çıktı $21.
+export const TRANSCRIBE_PRICES = {
+  input: { TEXT: 3.5, AUDIO: 3.5 },
+  output: { TEXT: 21.0, AUDIO: 21.0 },
+  thoughts: 21.0,
+};
+
 /** Tek turun usageMetadata'sından USD maliyet. Live her turda bir usageMetadata yollar; birikimli değildir. */
 export function costUsd(u, prices = PRICES) {
   if (!u) return 0;

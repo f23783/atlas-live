@@ -45,7 +45,7 @@ async function init() {
   const TOOL_MODES = [
     { id: 'direct', label: 'Doğrudan', note: 'Gemini tüm araçların tanımını görür ve kendisi seçer.' },
     { id: 'jev', label: 'Jev', note: 'Gemini önce "araç bul" der, aracı Jev (TypeSafe) seçer, sonra çalıştırır. İki tur.' },
-    { id: 'jev_pre', label: 'Jev ön-seçim', note: 'Jev cümleye Gemini\'den önce bakar, öneriyi mesaja ekler. Tek tur. Şimdilik yalnız yazılı girişte.' },
+    { id: 'jev_pre', label: 'Jev ön-seçim', note: 'Sen konuşurken ayrı bir döküm modeli yazıya çevirir; Jev bakar, gerekirse Gemini\'ye ipucu verir. Sesli ve yazılı. Kulaklık önerilir.' },
   ];
   for (const m of TOOL_MODES) {
     const b = el('button', { className: 'option', type: 'button', role: 'radio', dataset: { value: m.id } });

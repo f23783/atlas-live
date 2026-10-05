@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { INPUT_SAMPLE_RATE } from './config.js';
 import { buildToolset } from './tools/index.js';
+import { Scribe } from './scribe.js';
 
 const MAX_RECONNECTS = 5;
 const FATAL_CLOSE = /quota|billing|api key|permission|not found|not supported|invalid/i;
@@ -18,8 +19,18 @@ const FATAL_CLOSE = /quota|billing|api key|permission|not found|not supported|in
  *   transcript   { role: 'user' | 'model', text } — artımlı parçalar
  *   tool         { phase: 'call', calls } | { phase: 'result', traces } — trace: araç, argüman, Jev kararı, süre
  *   usage        o turun usageMetadata'sı (turda bir kez, birikimli değil)
+ *   watchdog     { ms } — araç sonucundan sonra model susunca bekçi dürttü
+ *   userLive     { text, final } — istemci sırası kipinde kullanıcının canlı dökümü (paralel döküm modelinden)
+ *   scribeUsage  döküm oturumunun usageMetadata'sı
+ *
+ * Sıra kipi: toolset.preRoute varsa (jev_pre) sırayı İSTEMCİ tutar: sunucu VAD kapalı, ses paralel döküm
+ * modeline de akar; ilk ara metinde activityStart, kesin metinde Jev ipucu + activityEnd. Gerekçe ve ölçüm:
+ * scripts/probe-parallel.js (ajanın kendi dökümü ancak sıra kapanınca geliyor, Jev'e yetişmiyor).
  *   error        Error
  */
+/** Ara ve kesin döküm karşılaştırması: noktalama, boşluk ve büyük/küçük harf farkı önemsiz. */
+const normalize = (t) => t.toLocaleLowerCase('tr').replace(/[^\p{L}\p{N}]+/gu, '');
+
 export class LiveSession extends EventEmitter {
   #ai;
   #cfg;
@@ -32,15 +43,27 @@ export class LiveSession extends EventEmitter {
   #reconnects = 0;
   #cancelledCalls = new Set();
   #needsKey;
+  #watchdog = null; // araç sonucundan sonra model susarsa dürtmek için
+  // istemci sırası (jev_pre sesli)
+  #clientTurns;
+  #scribe = null;
+  #turnOpen = false;
+  #preroll = []; // sıra kapalıyken son ~1,5 sn ses: konuşmanın ilk hecesi kaybolmasın
+  #finalText = '';
+  #closeTimer = null;
+  #speculate = null; // { key, promise } — ara metin durulunca Jev'e önceden sorulan karar
+  #specTimer = null;
   state = 'idle';
 
-  /** @param {{ config, ai?, toolset? }} o  toolset verilmezse yalnız doğrudan kip, yetenek yok (saat). */
-  constructor({ config, ai, toolset }) {
+  /** @param {{ config, ai?, toolset?, scribe? }} o  toolset verilmezse yalnız doğrudan kip, yetenek yok (saat). */
+  constructor({ config, ai, toolset, scribe }) {
     super();
     this.#cfg = config;
     this.#toolset = toolset ?? buildToolset({ skills: [] });
     this.#needsKey = !ai;
     this.#ai = ai ?? new GoogleGenAI({ apiKey: config.apiKey });
+    this.#clientTurns = Boolean(this.#toolset.preRoute);
+    if (this.#clientTurns) this.#scribe = scribe ?? new Scribe({ ai: this.#ai });
   }
 
   // Dinleyicisiz 'error' EventEmitter'da süreci çökertir; kopma/yeniden bağlanma bilgisi buna değmez.
@@ -59,7 +82,8 @@ export class LiveSession extends EventEmitter {
       responseModalities: [Modality.AUDIO],
       systemInstruction: [this.#cfg.systemInstruction, this.#toolset.systemNote].filter(Boolean).join('\n'),
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.#cfg.voice } } },
-      inputAudioTranscription: {},
+      // İstemci sırasında kullanıcı dökümü paralel döküm modelinden gelir; ajanınki geç ve tekrar olurdu.
+      ...(this.#clientTurns ? { realtimeInputConfig: { automaticActivityDetection: { disabled: true } } } : { inputAudioTranscription: {} }),
       outputAudioTranscription: {},
       // Ücretsiz katmanda googleSearch açıkken bağlantı anında 1011 "quota" ile kapanıyor (2026-10-05) → varsayılan kapalı.
       tools: [{ functionDeclarations: this.#toolset.declarations }, ...(this.#cfg.googleSearch ? [{ googleSearch: {} }] : [])],
@@ -73,7 +97,73 @@ export class LiveSession extends EventEmitter {
     if (this.#needsKey && !this.#cfg.apiKey) throw new Error('GEMINI_API_KEY yok (.env veya ortam değişkeni).');
     this.#stopping = false;
     this.#reconnects = 0;
+    if (this.#scribe) {
+      this.#scribe.on('interim', (t) => this.#onInterim(t));
+      this.#scribe.on('final', (t) => this.#onFinal(t));
+      this.#scribe.on('usage', (u) => this.emit('scribeUsage', u));
+      this.#scribe.on('error', (e) => this.#error(e));
+      await this.#scribe.start();
+    }
     await this.#connect('connecting');
+  }
+
+  // ── İstemci sırası ──────────────────────────────────────
+
+  #onInterim(text) {
+    if (this.state !== 'open') return;
+    clearTimeout(this.#closeTimer); // kesin metinden sonra konuşma sürdüyse sırayı kapatma
+    this.#closeTimer = null;
+    if (!this.#turnOpen) {
+      this.#turnOpen = true;
+      this.#session?.sendRealtimeInput({ activityStart: {} }); // model konuşuyorsa bu onu keser (söze girme)
+      for (const b of this.#preroll) this.#sendAgentAudio(b);
+      this.#preroll = [];
+    }
+    this.emit('userLive', { text: `${this.#finalText}${text}`, final: false });
+    // Ara metin ~250 ms değişmezse Jev'e şimdiden sor; kesin metin aynı çıkarsa sustuktan sonra beklemeyiz.
+    clearTimeout(this.#specTimer);
+    const full = `${this.#finalText}${text}`;
+    this.#specTimer = setTimeout(() => this.#prefetch(full), 250);
+  }
+
+  #prefetch(text) {
+    if (!this.#toolset.preRoute || !text.trim()) return;
+    const key = normalize(text);
+    if (this.#speculate?.key === key) return;
+    this.#speculate = { key, promise: this.#toolset.preRoute(text.trim()) };
+  }
+
+  #onFinal(text) {
+    if (!this.#turnOpen) return;
+    this.#finalText += text;
+    this.emit('userLive', { text: this.#finalText, final: false });
+    // Kısa bir bekleme: cümle ortasında duraklamada yeni ara metin gelirse sıra açık kalır.
+    clearTimeout(this.#closeTimer);
+    this.#closeTimer = setTimeout(() => this.#closeTurn(), this.#cfg.turnGraceMs ?? 200);
+  }
+
+  async #closeTurn() {
+    this.#closeTimer = null;
+    const text = this.#finalText.trim();
+    this.#finalText = '';
+    this.emit('userLive', { text, final: true });
+    clearTimeout(this.#specTimer);
+    if (text && this.#toolset.preRoute) {
+      const spec = this.#speculate?.key === normalize(text) ? this.#speculate.promise : null;
+      this.#speculate = null;
+      const { note, trace } = await (spec ?? this.#toolset.preRoute(text));
+      trace.speculative = Boolean(spec);
+      this.emit('tool', { phase: 'result', traces: [trace] });
+      // Not: realtime metin yerine clientContent — "konuşmayı tetiklemeyen bağlam" ekler (deneyde 8/8).
+      if (note && this.#session) this.#session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+    }
+    this.#userText = text;
+    this.#turnOpen = false;
+    this.#session?.sendRealtimeInput({ activityEnd: {} });
+  }
+
+  #sendAgentAudio(buf) {
+    this.#session?.sendRealtimeInput({ audio: { data: buf.toString('base64'), mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}` } });
   }
 
   async #connect(phase) {
@@ -110,23 +200,27 @@ export class LiveSession extends EventEmitter {
       this.#reconnectNow();
       return;
     }
-    if (m.toolCall?.functionCalls?.length) this.#handleToolCall(m.toolCall.functionCalls);
+    if (m.toolCall?.functionCalls?.length) {
+      this.#disarmWatchdog(); // model hareket etti
+      this.#handleToolCall(m.toolCall.functionCalls);
+    }
     if (m.toolCallCancellation?.ids) for (const id of m.toolCallCancellation.ids) this.#cancelledCalls.add(id);
 
     const sc = m.serverContent;
     if (!sc) return;
     this.#reconnects = 0; // model gerçekten cevap veriyor → bağlantı sağlıklı
+    if (sc.modelTurn || sc.outputTranscription || sc.interrupted) this.#disarmWatchdog();
     if (sc.interrupted) this.emit('interrupted');
     for (const part of sc.modelTurn?.parts ?? []) {
       if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('audio/')) this.emit('audio', part.inlineData.data);
     }
-    if (sc.inputTranscription?.text) {
+    if (sc.inputTranscription?.text && !this.#clientTurns) {
       this.#userText += sc.inputTranscription.text;
       this.emit('transcript', { role: 'user', text: sc.inputTranscription.text });
     }
     if (sc.outputTranscription?.text) this.emit('transcript', { role: 'model', text: sc.outputTranscription.text });
     if (sc.turnComplete) {
-      this.#userText = '';
+      if (!this.#turnOpen) this.#userText = '';
       this.emit('turnComplete');
     }
   }
@@ -143,6 +237,26 @@ export class LiveSession extends EventEmitter {
     if (!live.length) return;
     this.emit('tool', { phase: 'result', traces: live.map((d) => d.trace) });
     this.#session?.sendToolResponse({ functionResponses: live.map(({ fc, response }) => ({ id: fc.id, name: fc.name, response })) });
+    this.#armWatchdog();
+  }
+
+  // Bekçi: ölçümde (2026-10-05) Gemini bazen araç sonucunu alıp hiç konuşmadı (50 denemede 7, sebep kanıtlanamadı).
+  // Sonuçtan sonra watchdogMs içinde ses/yazı gelmezse bir kez dürt; kaç kez gerektiği 'watchdog' olayıyla ölçülür.
+  #armWatchdog() {
+    this.#disarmWatchdog();
+    const ms = this.#cfg.watchdogMs ?? 6000;
+    if (!ms) return;
+    this.#watchdog = setTimeout(() => {
+      this.#watchdog = null;
+      if (this.state !== 'open') return;
+      this.#sendRaw('[Sistem bildirimi — kullanıcı söylemedi] Araç sonucu geldi. Şimdi kullanıcıya kısaca sesli cevap ver.');
+      this.emit('watchdog', { ms });
+    }, ms);
+  }
+
+  #disarmWatchdog() {
+    clearTimeout(this.#watchdog);
+    this.#watchdog = null;
   }
 
   #onClose(e) {
@@ -177,13 +291,27 @@ export class LiveSession extends EventEmitter {
   sendAudio(pcm16) {
     if (this.state !== 'open' || !this.#session) return false;
     const buf = ArrayBuffer.isView(pcm16) ? Buffer.from(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength) : Buffer.from(pcm16);
-    this.#session.sendRealtimeInput({ audio: { data: buf.toString('base64'), mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}` } });
+    if (!this.#clientTurns) {
+      this.#sendAgentAudio(buf);
+      return true;
+    }
+    this.#scribe.send(buf);
+    if (this.#turnOpen) this.#sendAgentAudio(buf);
+    else {
+      this.#preroll.push(buf);
+      if (this.#preroll.length > 30) this.#preroll.shift(); // 30 × 50 ms
+    }
     return true;
   }
 
-  /** Mikrofon kapatılınca: VAD'ın bekleyen sesi işlemesini sağlar. */
+  /** Mikrofon kapatılınca: VAD'ın bekleyen sesi işlemesini sağlar; istemci sırasında açık sırayı kapatır. */
   endAudio() {
-    if (this.state === 'open') this.#session?.sendRealtimeInput({ audioStreamEnd: true });
+    if (this.state !== 'open') return;
+    if (this.#clientTurns) {
+      if (this.#turnOpen && !this.#closeTimer) this.#closeTurn();
+      return;
+    }
+    this.#session?.sendRealtimeInput({ audioStreamEnd: true });
   }
 
   /** Uygulamadan modele bilgi (ör. zamanlayıcı bitti). Model bunu kullanıcıya sesli iletir. */
@@ -193,28 +321,38 @@ export class LiveSession extends EventEmitter {
 
   /**
    * Kullanıcının yazdığı metin (yazılı girişte transkript gelmez; Jev için tura kaydedilir).
-   * jev_pre kipinde önce Jev'e sorulur; öneri varsa aynı mesaja eklenir (Gemini cevaba başlamadan görür).
+   * jev_pre'de önce Jev'e sorulur; ipucu sesli akıştaki gibi clientContent ile eklenir.
    */
   async sendText(text) {
     if (this.state !== 'open' || !this.#session || !text?.trim()) return false;
-    let msg = text;
+    let note = null;
     if (this.#toolset.preRoute) {
-      const { note, trace } = await this.#toolset.preRoute(String(text));
-      this.emit('tool', { phase: 'result', traces: [trace] });
-      if (note) msg = `${text}\n\n${note}`;
+      const r = await this.#toolset.preRoute(String(text));
+      note = r.note;
+      this.emit('tool', { phase: 'result', traces: [r.trace] });
     }
-    const ok = this.#sendRaw(msg);
-    if (ok) this.#userText = String(text);
-    return ok;
+    if (this.state !== 'open' || !this.#session) return false;
+    // Sunucu VAD kapalıyken de düz metin kendi başına bir tur (activityStart/End ile sarmak 1007 "Precondition
+    // check failed" ile bağlantıyı düşürüyor — 2026-10-05). İpucu metinden önce bağlam olarak: deneyde 4/4.
+    if (note) this.#session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+    this.#sendRaw(text);
+    this.#userText = String(text);
+    return true;
   }
 
   #sendRaw(text) {
     if (this.state !== 'open' || !this.#session || !text?.trim()) return false;
-    this.#session.sendRealtimeInput({ text });
+    this.#session.sendRealtimeInput({ text }); // istemci sırasında da sarmadan: bkz. sendText
     return true;
   }
 
   stop() {
+    this.#disarmWatchdog();
+    clearTimeout(this.#closeTimer);
+    clearTimeout(this.#specTimer);
+    this.#scribe?.stop();
+    this.#scribe?.removeAllListeners();
+    this.#turnOpen = false;
     this.#stopping = true;
     this.#gen++;
     this.#handle = null;

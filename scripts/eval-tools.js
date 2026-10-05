@@ -3,6 +3,7 @@
 //   node scripts/eval-tools.js --jev-only            Jev tek başına (Gemini yok): Türkçe isabet, sıra kararlılığı, gecikme
 //   node scripts/eval-tools.js                       uçtan uca, üç kip (her vaka taze Live oturumu, araçlar kuru)
 //   node scripts/eval-tools.js --modes jev --limit 5
+//   node scripts/eval-tools.js --modes jev_pre --only "ram ne kadar|şarjım"
 //
 // Vakalar: eval/tool-cases.json. Rapor: out/eval-tools-<zaman>.json + .md
 // Jev harcaması uygulamayla aynı deftere (~/.config/atlas-live/jev-usage.json) yazılır; bütçe sınırı geçerli.
@@ -20,7 +21,10 @@ const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 
-const cases = JSON.parse(fs.readFileSync(path.join(ROOT, 'eval/tool-cases.json'), 'utf8')).cases.slice(0, Number(opt('limit', 1e9)));
+const only = opt('only', null)?.split('|'); // --only "ram ne kadar|şarjım" → yalnız bu cümleleri içeren vakalar
+const cases = JSON.parse(fs.readFileSync(path.join(ROOT, 'eval/tool-cases.json'), 'utf8')).cases
+  .filter((c) => !only || only.some((o) => c.say.includes(o)))
+  .slice(0, Number(opt('limit', 1e9)));
 const base = loadConfig(loadEnv(), new SettingsStore(path.join(USER_DATA, 'settings.json')).get());
 const ledger = new JevLedger(path.join(USER_DATA, 'jev-usage.json'), base.jevBudgetUsd);
 const jev = new JevClient({ apiKey: base.typesafeKey, ledger });

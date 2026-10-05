@@ -2,7 +2,7 @@ import path from 'node:path';
 import { app, ipcMain } from 'electron';
 import { LiveSession } from './live-session.js';
 import { loadConfig, loadEnv } from './config.js';
-import { costUsd, fetchUsdTry, UsageLedger } from './pricing.js';
+import { costUsd, fetchUsdTry, UsageLedger, TRANSCRIBE_PRICES } from './pricing.js';
 import { SettingsStore, VOICES, MODELS, CONTEXT_LIMITS } from './settings.js';
 import { VoicePreview } from './voice-preview.js';
 import { buildToolset, skillRegistry } from './tools/index.js';
@@ -15,7 +15,7 @@ import { JevClient, JevLedger } from './jev.js';
 //           settings:preview(voice, model) → Uint8Array PCM16 24 kHz · settings:open · live:dry-run(bool) · ui:lab(bool)
 //   send    live:audio(ArrayBuffer PCM16 16 kHz) · live:audio-end
 //   main→UI live:event { type, payload }   (type 'cost' → { session, today, month } TL + kur + jev; 'settings' → yeni info)
-const FORWARDED = ['state', 'interrupted', 'turnComplete', 'transcript', 'tool'];
+const FORWARDED = ['state', 'interrupted', 'turnComplete', 'transcript', 'tool', 'watchdog', 'userLive'];
 
 export function registerIpc({ getWindow, openSettings, setLabOpen }) {
   let session = null;
@@ -73,12 +73,13 @@ export function registerIpc({ getWindow, openSettings, setLabOpen }) {
     // Jev harcaması araç sonucunda oluşur: sayaç anında güncellensin.
     session.on('tool', (t) => t.phase === 'result' && t.traces.some((x) => x.jev) && emit('cost', costSnapshot()));
     sessionUsd = 0;
-    session.on('usage', (u) => {
-      const usd = costUsd(u);
+    const charge = (usd) => {
       sessionUsd += usd;
       ledger.add(usd);
       emit('cost', costSnapshot());
-    });
+    };
+    session.on('usage', (u) => charge(costUsd(u)));
+    session.on('scribeUsage', (u) => charge(costUsd(u, TRANSCRIBE_PRICES))); // paralel döküm (jev_pre sesli)
     try {
       await session.start();
       return { ok: true };

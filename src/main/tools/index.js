@@ -16,8 +16,10 @@ const MIN_CONFIDENCE = 0.5; // altında Jev "emin değilim" der; tahmin yürütm
  * Oturumun araç seti.
  *   mode 'direct': Gemini tüm yeteneklerin tanımını görür ve doğrudan çağırır.
  *   mode 'jev'   : Gemini yalnız arac_bul + arac_calistir görür; hangi aracın gerektiğine Jev karar verir (iki tur).
- *   mode 'jev_pre': Jev kullanıcının cümlesine Gemini'den ÖNCE bakar; araç gerekiyorsa aynı mesaja öneri notu
- *                  (araç + şema) eklenir, Gemini yalnız arac_calistir görür (tek tur). preRoute() bunu yapar.
+ *   mode 'jev_pre': Jev kullanıcının cümlesine Gemini'den ÖNCE bakar; araç gerekiyorsa mesaja tek satırlık ipucu
+ *                  eklenir ("[İpucu: hava_durumu aracını kullan]"). Gemini tüm araçları doğrudan görür.
+ *                  Neden şemalı not değil: 2026-10-05 deneyinde uzun, JSON şemalı not + arac_calistir Gemini'yi sık sık
+ *                  sessiz bıraktı (notlu 3 denemede 2 takılma, kısa ipucuyla 8/8 sorunsuz). Bedeli: token tasarrufu yok.
  * run() modelin göreceği cevabı ve UI/test için `trace`'i ayrı döner.
  * dryRun: boolean ya da () => boolean; açıkken değiştiren araçlar (medya, zamanlayıcı) yalnız ne yapacağını söyler.
  */
@@ -26,12 +28,11 @@ export function buildToolset({ mode = 'direct', skills, jev, dryRun = false, use
   const base = [clock];
   const isDry = typeof dryRun === 'function' ? dryRun : () => dryRun; // test panelinden anlık açılıp kapanabilir
 
-  const routed = mode === 'jev' || mode === 'jev_pre' ? jevRouter({ skills, byName, jev, userText }) : null;
-  const routedDecl = mode === 'jev_pre' ? routed.declarations.filter((d) => d.name === 'arac_calistir') : routed?.declarations;
-  const declarations = [...base.map((t) => t.declaration), ...(routed ? routedDecl : skills.map((s) => s.declaration))];
+  const routed = mode === 'jev' ? jevRouter({ skills, byName, jev, userText }) : null;
+  const declarations = [...base.map((t) => t.declaration), ...(routed ? routed.declarations : skills.map((s) => s.declaration))];
 
   /**
-   * jev_pre: kullanıcının cümlesi için Jev'e sor; araç gerekiyorsa Gemini'ye gidecek öneri notunu döner.
+   * jev_pre: kullanıcının cümlesi için Jev'e sor; araç gerekiyorsa Gemini'ye gidecek kısa ipucunu döner.
    * @returns {{ note: string|null, trace }}
    */
   async function preRoute(text) {
@@ -43,11 +44,7 @@ export function buildToolset({ mode = 'direct', skills, jev, dryRun = false, use
       if (a.choice === NONE || a.confidence < MIN_CONFIDENCE) return { note: null, trace };
       const s = byName.get(a.choice);
       trace.skill = s.name;
-      const note =
-        `[Araç önerisi — sistemden, kullanıcı yazmadı] Bu istek için "${s.name}" aracı uygun: ${s.declaration.description} ` +
-        `arac_calistir ile çağır: ad="${s.name}", argumanlar_json bu şemaya uyan JSON: ${JSON.stringify(s.declaration.parameters ?? {})}. ` +
-        'İstek açıkça başka bir şeyse öneriyi yok say.';
-      return { note, trace };
+      return { note: `[İpucu: ${s.name} aracını kullan]`, trace };
     } catch (err) {
       trace.response = { hata: String(err?.message ?? err) }; // Jev yoksa öneri yok; konuşma sürer
       return { note: null, trace };
@@ -64,6 +61,9 @@ export function buildToolset({ mode = 'direct', skills, jev, dryRun = false, use
       if (direct) {
         trace.skill = direct.name;
         response = await direct.run(fc.args ?? {}, { dryRun });
+      } else if (mode === 'jev_pre' && byName.has(fc.name)) {
+        trace.skill = fc.name;
+        response = await byName.get(fc.name).run(fc.args ?? {}, { dryRun });
       } else if (routed && routed.handles(fc.name)) {
         response = await routed.run(fc, { dryRun, trace });
       } else {
@@ -77,10 +77,8 @@ export function buildToolset({ mode = 'direct', skills, jev, dryRun = false, use
     return { response, trace };
   }
 
-  const systemNote = mode === 'jev_pre'
-    ? 'Kullanıcının mesajında [Araç önerisi] notu varsa ve öneri isteğe uyuyorsa, tahmin yürütmeden hemen arac_calistir ile o aracı kullan. ' +
-      'Not yoksa saat dışında araç kullanma; bu notu kullanıcıya okuma.'
-    : null;
+  // jev_pre'de ek sistem talimatı yok: deneyde ipucu talimatsız 8/8 izlendi; fazladan kural eklemek ölçülmemiş risk.
+  const systemNote = null;
 
   return { mode, declarations, run, systemNote, preRoute: mode === 'jev_pre' ? preRoute : null };
 }
