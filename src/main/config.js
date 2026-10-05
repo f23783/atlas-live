@@ -15,8 +15,9 @@ export const DEFAULTS = {
     'Senin adın Atlas. Fido\'nun sesli asistanısın.',
     'Varsayılan dilin Türkçe; kullanıcı başka dilde konuşursa o dile geç.',
     'Konuşur gibi cevap ver: kısa cümleler, doğal tonlama. Liste, madde işareti, markdown kullanma.',
-    'Bilmediğin güncel bir şey sorulursa Google aramasını kullan. Emin değilsen söyle, uydurma.',
+    'Emin değilsen söyle, uydurma.',
   ].join('\n'),
+  searchInstruction: 'Bilmediğin güncel bir şey sorulursa Google aramasını kullan.',
 };
 
 /** Proje kökündeki .env dosyasını okur; process.env'deki değerler önceliklidir. */
@@ -36,6 +37,10 @@ export function loadConfig(env = loadEnv()) {
     apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '',
     model: env.ATLAS_MODEL || DEFAULTS.model,
     voice: env.ATLAS_VOICE || DEFAULTS.voice,
-    systemInstruction: DEFAULTS.systemInstruction,
+    // Ücretsiz katmanda Live + googleSearch kota hatası veriyor; billing açılınca ATLAS_GOOGLE_SEARCH=1.
+    googleSearch: env.ATLAS_GOOGLE_SEARCH === '1',
+    get systemInstruction() {
+      return this.googleSearch ? `${DEFAULTS.systemInstruction}\n${DEFAULTS.searchInstruction}` : DEFAULTS.systemInstruction;
+    },
   };
 }

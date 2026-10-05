@@ -91,6 +91,16 @@ describe('LiveSession', () => {
     expect(errors).toEqual([]);
   });
 
+  it('kota hatasında yeniden denemez; açılıp hemen kapanan bağlantıda döngüye girmez', async () => {
+    const errors = [];
+    s.on('error', (e) => errors.push(e.message));
+    ai.conns[0].callbacks.onclose({ code: 1011, reason: 'You exceeded your current quota, please check your plan and billing details.' });
+    expect(s.state).toBe('closed');
+    await new Promise((r) => setTimeout(r, 600));
+    expect(ai.conns).toHaveLength(1);
+    expect(errors[0]).toMatch(/quota/);
+  });
+
   it('beklenmedik kapanışta yeniden bağlanır; stop() sonrası bağlanmaz', async () => {
     ai.conns[0].callbacks.onclose({ reason: 'net' });
     expect(s.state).toBe('reconnecting');

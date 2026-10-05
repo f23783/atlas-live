@@ -23,6 +23,7 @@ s.on('audio', (b64) => {
 let modelText = '';
 s.on('transcript', ({ role, text }) => { if (role === 'model') modelText += text; });
 s.on('turnComplete', () => {
+  if (!chunks.length) return; // araç çağrısı turu da turnComplete ile biter; sesli cevabı bekle
   const pcm = Buffer.concat(chunks);
   const out = path.join(ROOT, 'out', 'probe.wav');
   fs.mkdirSync(path.dirname(out), { recursive: true });
@@ -36,7 +37,8 @@ s.on('turnComplete', () => {
 let tSent;
 await s.start();
 await new Promise((r) => (s.state === 'open' ? r() : s.once('state', r)));
-console.log(`[${ms()}] model=${cfg.model} ses=${cfg.voice} → "${prompt}"`);
+if (s.state !== 'open') process.exit(1);
+console.log(`[${ms()}] model=${cfg.model} ses=${cfg.voice} arama=${cfg.googleSearch ? 'açık' : 'kapalı'} → "${prompt}"`);
 tSent = performance.now();
 s.sendText(prompt);
 setTimeout(() => { console.error('60 sn içinde cevap yok.'); process.exit(1); }, 60_000);

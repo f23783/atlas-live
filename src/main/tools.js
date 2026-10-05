@@ -13,9 +13,13 @@ export const LOCAL_TOOLS = [
   },
 ];
 
-/** LiveConnectConfig.tools için liste: yerel fonksiyonlar + Google Search grounding. */
-export function toolConfig(tools = LOCAL_TOOLS) {
-  return [{ functionDeclarations: tools.map((t) => t.declaration) }, { googleSearch: {} }];
+/**
+ * LiveConnectConfig.tools için liste: yerel fonksiyonlar (+ istenirse Google Search grounding).
+ * Ücretsiz katmanda googleSearch açıkken Live bağlantısı anında 1011 "exceeded your current quota"
+ * ile kapanıyor (2026-10-05'te ölçüldü) — bu yüzden varsayılan kapalı, billing sonrası açılır.
+ */
+export function toolConfig(tools = LOCAL_TOOLS, { googleSearch = false } = {}) {
+  return [{ functionDeclarations: tools.map((t) => t.declaration) }, ...(googleSearch ? [{ googleSearch: {} }] : [])];
 }
 
 /** Gelen functionCalls'ı çalıştırır; hata olursa modele hata metni döner, oturumu düşürmez. */

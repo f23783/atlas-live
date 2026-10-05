@@ -4,6 +4,7 @@ import { INPUT_SAMPLE_RATE } from './config.js';
 import { toolConfig, runToolCalls, LOCAL_TOOLS } from './tools.js';
 
 const MAX_RECONNECTS = 5;
+const FATAL_CLOSE = /quota|billing|api key|permission|not found|not supported|invalid/i;
 
 /**
  * Gemini Live oturumunun tek sahibi. Electron'dan bağımsızdır: UI'ı yalnız olaylarla besler,
@@ -57,7 +58,7 @@ export class LiveSession extends EventEmitter {
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.#cfg.voice } } },
       inputAudioTranscription: {},
       outputAudioTranscription: {},
-      tools: toolConfig(this.#tools),
+      tools: toolConfig(this.#tools, { googleSearch: this.#cfg.googleSearch }),
       // 15 dk sınırını kaldırır; bağlantı ~10 dk'da yenilenince handle ile kaldığımız yerden devam ederiz.
       contextWindowCompression: { slidingWindow: {} },
       sessionResumption: this.#handle ? { handle: this.#handle } : {},
@@ -80,10 +81,9 @@ export class LiveSession extends EventEmitter {
         model: this.#cfg.model,
         config: this.connectConfig(),
         callbacks: {
-          onopen: live(() => {
-            this.#reconnects = 0;
-            this.#setState('open');
-          }),
+          // Sayaç burada sıfırlanmaz: kota/yetki hatasında sunucu soketi açıp hemen kapatır,
+          // açılışta sıfırlamak sonsuz yeniden bağlanma döngüsü demek.
+          onopen: live(() => this.#setState('open')),
           onmessage: live((m) => this.#onMessage(m)),
           onerror: live((e) => this.#error(new Error(e?.message ?? 'WebSocket hatası'))),
           onclose: live((e) => this.#onClose(e)),
@@ -110,6 +110,7 @@ export class LiveSession extends EventEmitter {
 
     const sc = m.serverContent;
     if (!sc) return;
+    this.#reconnects = 0; // model gerçekten cevap veriyor → bağlantı sağlıklı
     if (sc.interrupted) this.emit('interrupted');
     for (const part of sc.modelTurn?.parts ?? []) {
       if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('audio/')) this.emit('audio', part.inlineData.data);
@@ -130,7 +131,10 @@ export class LiveSession extends EventEmitter {
   #onClose(e) {
     this.#session = null;
     if (this.#stopping) return this.#setState('closed');
-    this.#error(new Error(`Bağlantı kapandı: ${e?.reason || e?.code || 'bilinmiyor'}`));
+    const reason = e?.reason || `kod ${e?.code ?? '?'}`;
+    this.#error(new Error(`Bağlantı kapandı: ${reason}`));
+    // Kota, anahtar, model adı gibi hatalar yeniden denemeyle düzelmez; denemek sadece kotayı yakar.
+    if (e?.code === 1008 || FATAL_CLOSE.test(reason)) return this.#setState('closed');
     this.#scheduleReconnect();
   }
 
