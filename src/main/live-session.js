@@ -44,6 +44,8 @@ export class LiveSession extends EventEmitter {
   #cancelledCalls = new Set();
   #needsKey;
   #watchdog = null; // araç sonucundan sonra model susarsa dürtmek için
+  #openedAt = 0;
+  #lastReason = '';
   // istemci sırası (jev_pre sesli)
   #clientTurns;
   #scribe = null;
@@ -102,6 +104,7 @@ export class LiveSession extends EventEmitter {
       this.#scribe.on('final', (t) => this.#onFinal(t));
       this.#scribe.on('usage', (u) => this.emit('scribeUsage', u));
       this.#scribe.on('error', (e) => this.#error(e));
+      this.#scribe.on('debug', (d) => this.emit('debug', d));
       await this.#scribe.start();
     }
     await this.#connect('connecting');
@@ -114,6 +117,7 @@ export class LiveSession extends EventEmitter {
     clearTimeout(this.#closeTimer); // kesin metinden sonra konuşma sürdüyse sırayı kapatma
     this.#closeTimer = null;
     if (!this.#turnOpen) {
+      this.emit('debug', `sıra açıldı (ilk ara metin: "${text}", tampon ${this.#preroll.length})`);
       this.#turnOpen = true;
       this.#session?.sendRealtimeInput({ activityStart: {} }); // model konuşuyorsa bu onu keser (söze girme)
       for (const b of this.#preroll) this.#sendAgentAudio(b);
@@ -160,6 +164,7 @@ export class LiveSession extends EventEmitter {
     this.#userText = text;
     this.#turnOpen = false;
     this.#session?.sendRealtimeInput({ activityEnd: {} });
+    this.emit('debug', `sıra kapandı: "${text}"`);
   }
 
   #sendAgentAudio(buf) {
@@ -177,7 +182,7 @@ export class LiveSession extends EventEmitter {
         callbacks: {
           // Sayaç burada sıfırlanmaz: kota/yetki hatasında sunucu soketi açıp hemen kapatır,
           // açılışta sıfırlamak sonsuz yeniden bağlanma döngüsü demek.
-          onopen: live(() => this.#setState('open')),
+          onopen: live(() => { this.#openedAt = Date.now(); this.#setState('open'); }),
           onmessage: live((m) => this.#onMessage(m)),
           onerror: live((e) => this.#error(new Error(e?.message ?? 'WebSocket hatası'))),
           onclose: live((e) => this.#onClose(e)),
@@ -260,12 +265,19 @@ export class LiveSession extends EventEmitter {
   }
 
   #onClose(e) {
+    this.emit('debug', `ajan kapandı: kod=${e?.code} sebep=${e?.reason || '-'} turAçık=${this.#turnOpen}`);
     this.#session = null;
     if (this.#stopping) return this.#setState('closed');
     const reason = e?.reason || `kod ${e?.code ?? '?'}`;
     this.#error(new Error(`Bağlantı kapandı: ${reason}`));
     // Kota, anahtar, model adı gibi hatalar yeniden denemeyle düzelmez; denemek sadece kotayı yakar.
     if (e?.code === 1008 || FATAL_CLOSE.test(reason)) return this.#setState('closed');
+    // Açılır açılmaz ölen bağlantı: kaldığı yerden devam anahtarı bozuk durumu geri getiriyor olabilir → temiz başla.
+    if (this.#handle && Date.now() - this.#openedAt < 3000) {
+      this.emit('debug', 'açılır açılmaz kapandı: devam anahtarı bırakıldı, temiz oturum');
+      this.#handle = null;
+    }
+    this.#lastReason = reason;
     this.#scheduleReconnect();
   }
 
@@ -279,7 +291,7 @@ export class LiveSession extends EventEmitter {
     if (this.#stopping) return;
     if (++this.#reconnects > MAX_RECONNECTS) {
       this.#setState('closed');
-      this.#error(new Error('Yeniden bağlanılamadı, vazgeçildi.'));
+      this.#error(new Error(`Yeniden bağlanılamadı (${this.#lastReason || 'bilinmiyor'}). Model sunucu tarafında sorun çıkarıyor olabilir: Ayarlar → Model'den yedeği dene.`));
       return;
     }
     this.#setState('reconnecting');

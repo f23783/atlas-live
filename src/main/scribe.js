@@ -46,6 +46,7 @@ export class Scribe extends EventEmitter {
           if (m.usageMetadata) this.emit('usage', m.usageMetadata);
         }),
         onclose: live((e) => {
+          this.emit('debug', `döküm kapandı: kod=${e?.code} sebep=${e?.reason || '-'}`);
           this.#session = null;
           if (this.#stopped) return;
           if (this.listenerCount('error')) this.emit('error', new Error(`Döküm bağlantısı kapandı: ${e?.reason || e?.code}`));

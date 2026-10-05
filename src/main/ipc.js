@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { app, ipcMain } from 'electron';
 import { LiveSession } from './live-session.js';
 import { loadConfig, loadEnv } from './config.js';
@@ -17,9 +18,17 @@ import { JevClient, JevLedger } from './jev.js';
 //   main→UI live:event { type, payload }   (type 'cost' → { session, today, month } TL + kur + jev; 'settings' → yeni info)
 const FORWARDED = ['state', 'interrupted', 'turnComplete', 'transcript', 'tool', 'watchdog', 'userLive'];
 
+/** Teşhis günlüğü: kopuş kodları, durumlar, sıra olayları. Her açılışta baştan (son oturum yeter). */
+function openLog(file) {
+  fs.writeFileSync(file, `--- ${new Date().toISOString()}\n`);
+  const t0 = Date.now();
+  return (line) => fs.appendFile(file, `${String(Date.now() - t0).padStart(8)} ms  ${line}\n`, () => {});
+}
+
 export function registerIpc({ getWindow, openSettings, setLabOpen }) {
   let session = null;
   const emit = (type, payload) => getWindow()?.webContents.send('live:event', { type, payload });
+  const log = openLog(path.join(app.getPath('userData'), 'atlas.log'));
 
   const userData = app.getPath('userData');
   const settings = new SettingsStore(path.join(userData, 'settings.json'));
@@ -69,7 +78,9 @@ export function registerIpc({ getWindow, openSettings, setLabOpen }) {
     for (const ev of FORWARDED) session.on(ev, (p) => emit(ev, p));
     // Ses base64 olarak gelir; UI'a ham bayt yolla (IPC'de Uint8Array olarak varır, çözme maliyeti yok).
     session.on('audio', (b64) => emit('audio', Buffer.from(b64, 'base64')));
-    session.on('error', (e) => emit('error', e.message));
+    session.on('error', (e) => { log(`hata: ${e.message}`); emit('error', e.message); });
+    session.on('state', (st) => log(`durum: ${st} (kip ${c.toolMode})`));
+    session.on('debug', (d) => log(d));
     // Jev harcaması araç sonucunda oluşur: sayaç anında güncellensin.
     session.on('tool', (t) => t.phase === 'result' && t.traces.some((x) => x.jev) && emit('cost', costSnapshot()));
     sessionUsd = 0;
@@ -97,8 +108,8 @@ export function registerIpc({ getWindow, openSettings, setLabOpen }) {
   ipcMain.on('live:audio-end', () => session?.endAudio());
 
   ipcMain.handle('live:dry-run', (_e, on) => { dryRun = Boolean(on); return dryRun; });
-  ipcMain.handle('ui:lab', (_e, open) => setLabOpen(Boolean(open)));
-  ipcMain.handle('settings:open', () => openSettings());
+  ipcMain.handle('ui:lab', (_e, open) => { setLabOpen(Boolean(open)); });
+  ipcMain.handle('settings:open', () => { openSettings(); }); // pencere nesnesi IPC'den klonlanamaz: döndürme
   ipcMain.handle('settings:get', () => {
     const c = config();
     return {

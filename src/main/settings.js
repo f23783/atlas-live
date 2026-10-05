@@ -17,6 +17,8 @@ export const VOICES = [
 export const MODELS = [
   { id: 'gemini-3.8-live', label: 'Hızlı', note: 'En düşük gecikme. Günlük konuşma için.' },
   { id: 'gemini-3.8-live-extended-thinking', label: 'Derin düşünen', note: 'Zor sorularda daha iyi, cevaba başlaması daha uzun sürer.' },
+  // Yedek: 2026-10-05 akşamı 3.8 Live en sade ayarla bile 1011 "Internal error" verirken bu model sorunsuzdu.
+  { id: 'gemini-3.1-flash-live-preview', label: 'Yedek (3.1 Flash Live)', note: 'Önceki nesil, önizleme. 3.8 sorun çıkarırsa.' },
 ];
 
 export const CONTEXT_LIMITS = [8000, 16000, 32000];
