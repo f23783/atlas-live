@@ -61,19 +61,27 @@ window.atlas.onEvent(({ type, payload }) => {
       break;
     case 'audio':
       audio.play(payload);
+      timing.onAudio();
       break;
     case 'interrupted':
       audio.flush();
+      timing.finish(true);
       endTurn(true);
       break;
     case 'turnComplete':
+      timing.onTurnComplete();
       endTurn(false);
       break;
     case 'transcript':
       appendTranscript(payload.role, payload.text);
+      if (payload.role === 'model') timing.bubble = turn.model;
       break;
     case 'tool':
-      if (payload.phase === 'result') for (const t of payload.traces) { addChip(chipText(t)); lab.log(t); }
+      if (payload.phase === 'result') for (const t of payload.traces) {
+        addChip(chipText(t));
+        lab.log(t);
+        if (t.name === 'on_secim' && t.jev) timing.jev = { ms: t.jev.ms, speculative: t.speculative };
+      }
       break;
     case 'userLive':
       // İstemci sırası (ön-seçim, sesli): paralel dökümden canlı metin; balonun metni her seferinde yenilenir.
@@ -186,6 +194,7 @@ const scrollDown = () => (ui.transcript.scrollTop = ui.transcript.scrollHeight);
 
 async function sendText(text) {
   if (!text || conn !== 'open') return;
+  timing.typedAt(performance.now());
   endTurn(false);
   appendTranscript('user', text);
   turn.user.classList.remove('live');
@@ -325,10 +334,66 @@ function frame(now) {
   ctx.fillStyle = core;
   ctx.fill();
 
+  timing.tick();
   const h = hintText();
   if (ui.hint.textContent !== h) ui.hint.textContent = h;
   requestAnimationFrame(frame);
 
+}
+
+// ── Süre ölçümü ──────────────────────────────────────────
+// Başlangıç: sesli soruda kullanıcının SUSTUĞU an (kendi mikrofon seviyemizden — sunucu VAD'ı, döküm bekleyişi ve
+// Jev hepsi içeride kalır, kipler aynı cetvelle ölçülür), yazılı soruda Gönder anı.
+// İlk ses: modelin ilk ses parçası. Bitiş: o turun sesi çalınıp bittiğinde (kesildiyse kesildiği an).
+
+const sec = (ms) => `${(ms / 1000).toLocaleString('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} sn`;
+
+const timing = {
+  start: null, typed: false, first: null, jev: null, bubble: null, draining: false,
+
+  typedAt(t) { this.reset(); this.start = t; this.typed = true; },
+
+  onAudio() {
+    if (this.first != null) return;
+    this.first = performance.now();
+    if (!this.typed) {
+      const v = audio.lastVoiceAt;
+      // 20 sn'den eski ses = bu cevap kullanıcıya değil (zamanlayıcı/bekçi bildirimi): ölçme
+      this.start = v != null && this.first - v < 20000 ? v : null;
+    }
+  },
+
+  onTurnComplete() { if (this.first != null) this.draining = true; }, // araç alt turu (sessiz) yok sayılır
+
+  tick() { if (this.draining && !audio.speaking) this.finish(false); },
+
+  finish(cut) {
+    if (this.first != null && this.start != null) {
+      const r = {
+        first: this.first - this.start,
+        total: performance.now() - this.start,
+        jev: this.jev, cut, typed: this.typed, mode: currentInfo?.toolMode ?? '?',
+      };
+      render(r, this.bubble);
+      lab.addTiming(r);
+    }
+    this.reset();
+  },
+
+  reset() { Object.assign(this, { start: null, typed: false, first: null, jev: null, bubble: null, draining: false }); },
+};
+
+function render(r, bubble) {
+  const el = document.createElement('div');
+  el.className = 'timing';
+  const parts = [`ilk ses ${sec(r.first)}`, `${r.cut ? 'kesildi' : 'bitiş'} ${sec(r.total)}`];
+  if (r.jev) parts.push(`Jev ${sec(r.jev.ms)}${r.jev.speculative ? ' (önceden)' : ''}`);
+  el.textContent = `${parts.join(' · ')} — ${r.typed ? 'yazılı' : 'sustuktan sonra'}`;
+  el.title = 'Sesli soruda başlangıç: mikrofonunda sesin son duyulduğu an. Yazılıda: Gönder.';
+  const stick = nearBottom();
+  if (bubble?.isConnected) bubble.after(el);
+  else ui.transcript.append(el);
+  if (stick) scrollDown();
 }
 
 // ── Test paneli ──────────────────────────────────────────
@@ -484,14 +549,55 @@ const lab = (() => {
     for (const b of el.presets.children) b.disabled = !on;
   }
 
+  // Kip başına süre geçmişi (tarayıcı deposunda son 30): "Jev yavaş mı?" sorusu sayıyla cevaplansın.
+  const MODE_NAMES = { direct: 'Doğrudan', jev: 'Jev', jev_pre: 'Ön-seçim' };
+  let hist = {};
+  try { hist = JSON.parse(localStorage.getItem('timings') || '{}'); } catch { /* yok */ }
+  const med = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+
+  function addTiming(r) {
+    if (r.cut) return; // kesilen tur bitiş süresini bozar
+    const key = `${r.mode}|${r.typed ? 'yazılı' : 'sesli'}`;
+    (hist[key] ??= []).push({ first: Math.round(r.first), total: Math.round(r.total) });
+    hist[key] = hist[key].slice(-30);
+    try { localStorage.setItem('timings', JSON.stringify(hist)); } catch { /* depolama yok */ }
+    renderTimings();
+  }
+
+  function renderTimings() {
+    let box = document.getElementById('labTimings');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'labTimings';
+      box.className = 'lab-timings';
+      el.stats.after(box);
+    }
+    const rows = Object.entries(hist).filter(([, a]) => a.length).sort();
+    if (!rows.length) { box.textContent = ''; return; }
+    box.replaceChildren(...rows.map(([key, a]) => {
+      const [mode, kind] = key.split('|');
+      const d = document.createElement('div');
+      d.textContent = `${MODE_NAMES[mode] ?? mode} · ${kind}: ilk ses ${sec(med(a.map((x) => x.first)))} · bitiş ${sec(med(a.map((x) => x.total)))} (medyan, ${a.length} ölçüm)`;
+      return d;
+    }));
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'sıfırla';
+    reset.addEventListener('click', () => { hist = {}; try { localStorage.removeItem('timings'); } catch { /* yok */ } renderTimings(); });
+    box.append(reset);
+  }
+  renderTimings();
+
   let initial = false;
   try { initial = localStorage.getItem('lab') === '1'; } catch { /* depolama yok */ }
   if (initial) setOpen(true);
   setEnabled(false);
-  return { log, setInfo, setBudget, setEnabled, toggle: () => setOpen(el.panel.hidden) };
+  return { log, setInfo, setBudget, setEnabled, addTiming, toggle: () => setOpen(el.panel.hidden) };
 })();
 
+let currentInfo = null;
 function showInfo(i) {
+  currentInfo = i;
   ui.meta.textContent = `${i.model} · ses: ${i.voice} · bellek ${Math.round(i.contextLimit / 1000)}k${i.googleSearch ? ' · arama açık' : ''}`;
   showCost(i.cost, false);
   lab.setInfo(i);

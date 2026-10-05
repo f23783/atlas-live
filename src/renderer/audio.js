@@ -1,6 +1,11 @@
 // Ses motoru: mikrofon yakalama (16 kHz) + model sesi çalma (24 kHz). Gemini Live'ın beklediği formatlar.
+
+// Bu RMS'in üstü "kullanıcı konuşuyor" sayılır (süre ölçümü için; oda gürültüsü ~0,002–0,01, konuşma ~0,03+).
+export const VOICE_LEVEL = 0.025;
+
 export class AudioEngine {
   inLevel = 0;
+  lastVoiceAt = null; // kullanıcının sesinin eşiği son geçtiği an — "sustuğu an" ölçümü
   outLevel = 0;
   queued = 0;
   muted = false;
@@ -17,6 +22,7 @@ export class AudioEngine {
     this.capture = new AudioWorkletNode(this.inCtx, 'capture');
     this.capture.port.onmessage = ({ data }) => {
       this.inLevel = this.muted ? 0 : data.level;
+      if (!this.muted && data.level > VOICE_LEVEL) this.lastVoiceAt = performance.now();
       if (!this.muted) onChunk(data.pcm);
     };
     src.connect(this.capture);
