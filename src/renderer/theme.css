@@ -1,0 +1,15 @@
+/* Yedek palet. Asıl renkler matugen'den (:root) gelir ve özgüllükte bunu ezer (html < :root). */
+html {
+  --bg: #1a1110;
+  --bg-raised: #271d1c;
+  --bg-high: #322826;
+  --text: #f1dedc;
+  --text-muted: #d8c2bf;
+  --outline: #534341;
+  --accent: #ffb4ab;
+  --on-accent: #561e19;
+  --accent-soft: #73332d;
+  --user: #e0c38c;
+  --user-soft: #584419;
+  --error: #ffb4ab;
+}

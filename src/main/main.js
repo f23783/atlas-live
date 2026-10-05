@@ -5,6 +5,7 @@ import { registerIpc } from './ipc.js';
 import { attachTheme } from './theme.js';
 
 let win = null;
+let settingsWin = null;
 // Doğrulama: ATLAS_SNAPSHOT=dosya.png → pencere gizli açılır, ekran görüntüsü alınır, uygulama kapanır.
 const SNAPSHOT = process.env.ATLAS_SNAPSHOT;
 const SNAPSHOT_ASK = process.env.ATLAS_SNAPSHOT_ASK; // verilirse: mikrofon kapalı bağlan, bu metni sor, cevaptan sonra çek
@@ -30,13 +31,43 @@ function createWindow() {
   win.loadFile(path.join(ROOT, 'src/renderer/index.html'), SNAPSHOT_ASK ? { query: { ask: SNAPSHOT_ASK } } : undefined);
   win.on('closed', () => (win = null));
   if (SNAPSHOT) {
-    win.webContents.on('console-message', (e) => console.log(`[renderer] ${e.message}`));
-    win.webContents.once('did-finish-load', () => setTimeout(async () => {
-      const img = await win.webContents.capturePage();
-      (await import('node:fs')).writeFileSync(SNAPSHOT, img.toPNG());
-      app.quit();
-    }, SNAPSHOT_ASK ? 14000 : 1500));
+    // ATLAS_SNAPSHOT_SETTINGS=1 → ayar penceresinin görüntüsü
+    const target = () => (process.env.ATLAS_SNAPSHOT_SETTINGS ? openSettings() : win);
+    win.webContents.once('did-finish-load', () => {
+      const w = target();
+      w.webContents.on('console-message', (e) => console.log(`[renderer] ${e.message}`));
+      setTimeout(async () => {
+        if (process.env.ATLAS_SNAPSHOT_SETTINGS === 'bottom') await w.webContents.executeJavaScript("document.querySelector('.page').scrollTop = 1e6");
+        const img = await w.webContents.capturePage();
+        (await import('node:fs')).writeFileSync(SNAPSHOT, img.toPNG());
+        app.quit();
+      }, SNAPSHOT_ASK ? 14000 : 1500);
+    });
   }
+}
+
+function openSettings() {
+  if (settingsWin) return settingsWin.focus();
+  settingsWin = new BrowserWindow({
+    parent: win ?? undefined,
+    width: 520,
+    height: 700,
+    minWidth: 380,
+    backgroundColor: '#1a1110',
+    title: 'Atlas — Ayarlar',
+    show: !SNAPSHOT,
+    webPreferences: {
+      preload: path.join(ROOT, 'src/main/preload.cjs'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+    },
+  });
+  settingsWin.setMenuBarVisibility(false);
+  attachTheme(settingsWin);
+  settingsWin.loadFile(path.join(ROOT, 'src/renderer/settings.html'));
+  settingsWin.on('closed', () => (settingsWin = null));
+  return settingsWin;
 }
 
 app.whenReady().then(() => {
@@ -44,7 +75,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb, details) =>
     cb(perm === 'media' && (details.mediaTypes ?? []).every((t) => t === 'audio')));
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === 'media');
-  const stopLive = registerIpc(() => win);
+  const stopLive = registerIpc({ getWindow: () => win, openSettings });
   createWindow();
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
   app.on('before-quit', stopLive);

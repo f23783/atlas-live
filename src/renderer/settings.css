@@ -1,0 +1,133 @@
+* { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Inter", "Noto Sans", system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.page { overflow-y: auto; min-height: 0; padding: 18px 20px 8px; }
+.page::-webkit-scrollbar { width: 6px; }
+.page::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 3px; }
+
+h1 { font-size: 20px; font-weight: 650; margin: 0 0 14px; }
+h2 { font-size: 13px; font-weight: 600; margin: 0; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+section { margin-bottom: 22px; }
+.sec-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.hint, .desc { color: var(--text-muted); font-size: 12.5px; }
+.desc { margin: 4px 0 10px; display: block; }
+section > h2 + * { margin-top: 10px; }
+
+/* ── Ses ızgarası ─────────────────────────── */
+.voices { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+.voice {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  border: 1.5px solid transparent;
+  cursor: pointer;
+}
+.voice:hover { background: var(--bg-high); }
+.voice[aria-checked="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 45%, var(--bg-raised)); }
+.voice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.voice .txt { flex: 1; min-width: 0; }
+.voice .name { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.voice .trait { display: block; font-size: 12px; color: var(--text-muted); }
+.voice .now { font-size: 10.5px; color: var(--accent); margin-left: 4px; font-weight: 500; }
+
+.play {
+  display: grid; place-items: center;
+  width: 30px; height: 30px; flex: none;
+  border: 0; border-radius: 50%;
+  background: var(--bg-high); color: var(--text);
+  cursor: pointer;
+}
+.play:hover { background: var(--accent); color: var(--on-accent); }
+.play svg { width: 14px; height: 14px; fill: currentColor; }
+.play .i-stop, .play.playing .i-play { display: none; }
+.play.playing .i-stop { display: block; }
+.play.playing { background: var(--accent); color: var(--on-accent); }
+.play.loading { pointer-events: none; }
+.play.loading svg { display: none; }
+.play.loading::after {
+  content: ""; width: 12px; height: 12px;
+  border: 2px solid var(--text-muted); border-top-color: transparent; border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Model kartları ───────────────────────── */
+.options { display: grid; gap: 8px; }
+.option {
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  border: 1.5px solid transparent;
+  color: var(--text); font: inherit;
+  cursor: pointer;
+}
+.option:hover { background: var(--bg-high); }
+.option[aria-checked="true"] { border-color: var(--accent); }
+.option b { display: block; }
+.option span { font-size: 12.5px; color: var(--text-muted); }
+.option:focus-visible, .segment:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Bellek ───────────────────────────────── */
+.segments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.segment {
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: var(--bg-raised);
+  border: 1.5px solid transparent;
+  color: var(--text); font: inherit; text-align: center;
+  cursor: pointer;
+}
+.segment:hover { background: var(--bg-high); }
+.segment[aria-checked="true"] { border-color: var(--accent); }
+.segment b { display: block; font-size: 15px; }
+.segment span { display: block; font-size: 11.5px; color: var(--text-muted); line-height: 1.35; }
+
+/* ── Anahtar ──────────────────────────────── */
+.toggle { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.switch {
+  flex: none; width: 38px; height: 22px; margin-top: 2px;
+  border-radius: 999px; background: var(--outline);
+  position: relative; transition: background .15s;
+}
+.switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text); transition: transform .15s;
+}
+.toggle input:checked + .switch { background: var(--accent); }
+.toggle input:checked + .switch::after { transform: translateX(16px); background: var(--on-accent); }
+.toggle input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle .desc { margin: 2px 0 0; }
+
+/* ── Alt çubuk ────────────────────────────── */
+.actions {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 20px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--outline) 60%, transparent);
+}
+.actions .status { flex: 1; font-size: 12.5px; color: var(--text-muted); }
+.actions .status.err { color: var(--error); }
+.btn {
+  border: 0; border-radius: 999px;
+  padding: 8px 18px;
+  font: inherit; font-weight: 600;
+  cursor: pointer;
+}
+.btn.ghost { background: transparent; color: var(--text-muted); }
+.btn.ghost:hover { color: var(--text); background: var(--bg-raised); }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.primary:disabled { opacity: .35; cursor: default; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

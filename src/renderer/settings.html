@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+  <title>Atlas — Ayarlar</title>
+  <link rel="stylesheet" href="theme.css">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main class="page">
+    <h1>Ayarlar</h1>
+
+    <section>
+      <div class="sec-head">
+        <h2>Ses</h2>
+        <span class="hint">▶ ile dinle. Her ses ilk dinlemede bir kez üretilir.</span>
+      </div>
+      <div class="voices" id="voices" role="radiogroup" aria-label="Ses"></div>
+    </section>
+
+    <section>
+      <h2>Model</h2>
+      <div class="options" id="models" role="radiogroup" aria-label="Model"></div>
+    </section>
+
+    <section>
+      <h2>Konuşma belleği</h2>
+      <p class="desc">Model konuşmanın ne kadarını hatırlasın. Live her turda bu belleğin tamamını faturalar;
+        uzun bellek uzun konuşmayı pahalandırır.</p>
+      <div class="segments" id="contexts" role="radiogroup" aria-label="Konuşma belleği"></div>
+    </section>
+
+    <section>
+      <label class="toggle">
+        <input type="checkbox" id="search">
+        <span class="switch" aria-hidden="true"></span>
+        <span>
+          <b>Google araması</b>
+          <span class="desc">Güncel bilgi için. Ücretsiz katmanda bağlantıyı kota hatasıyla düşürüyor, yalnız faturalandırma açıksa aç.</span>
+        </span>
+      </label>
+    </section>
+  </main>
+
+  <footer class="actions">
+    <span class="status" id="status" role="status"></span>
+    <button class="btn ghost" id="close" type="button">Kapat</button>
+    <button class="btn primary" id="save" type="button" disabled>Kaydet</button>
+  </footer>
+
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

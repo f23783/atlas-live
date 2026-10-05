@@ -32,16 +32,17 @@ export function loadEnv(file = path.join(ROOT, '.env')) {
   return { ...out, ...process.env };
 }
 
-export function loadConfig(env = loadEnv()) {
+/** Öncelik: varsayılan < .env < settings (arayüzden kaydedilen). API anahtarı yalnız .env'de. */
+export function loadConfig(env = loadEnv(), settings = {}) {
   return {
     apiKey: env.GEMINI_API_KEY || env.GOOGLE_API_KEY || '',
-    model: env.ATLAS_MODEL || DEFAULTS.model,
-    voice: env.ATLAS_VOICE || DEFAULTS.voice,
-    // Ücretsiz katmanda Live + googleSearch kota hatası veriyor; billing açılınca ATLAS_GOOGLE_SEARCH=1.
-    googleSearch: env.ATLAS_GOOGLE_SEARCH === '1',
+    model: settings.model ?? (env.ATLAS_MODEL || DEFAULTS.model),
+    voice: settings.voice ?? (env.ATLAS_VOICE || DEFAULTS.voice),
+    // Ücretsiz katmanda Live + googleSearch kota hatası veriyor; billing açılınca açılmalı.
+    googleSearch: settings.googleSearch ?? env.ATLAS_GOOGLE_SEARCH === '1',
     // Sunucu bağlamı bu kadar token'a ulaşınca eski kısmı atar (yarısına indirir). Live her turda bağlamın
-    // tamamını faturaladığı için maliyetin tavanı bu: 8k ≈ son ~5 dk konuşma. Bkz. README maliyet notu.
-    contextLimit: Number(env.ATLAS_CONTEXT_LIMIT) || 8000,
+    // tamamını faturaladığı için maliyetin tavanı bu: 8k ≈ son ~5 dk konuşma.
+    contextLimit: settings.contextLimit ?? (Number(env.ATLAS_CONTEXT_LIMIT) || 8000),
     usdTryFallback: Number(env.ATLAS_USD_TRY) || 49.06,
     get systemInstruction() {
       return this.googleSearch ? `${DEFAULTS.systemInstruction}\n${DEFAULTS.searchInstruction}` : DEFAULTS.systemInstruction;

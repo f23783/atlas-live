@@ -6,6 +6,7 @@ const ui = {
   status: $('status'), statusText: $('statusText'),
   transcript: $('transcript'), empty: $('empty'), toast: $('toast'),
   cost: $('cost'),
+  settings: $('settings'),
   mic: $('mic'), composer: $('composer'), input: $('textInput'), send: document.querySelector('.send'),
 };
 
@@ -73,6 +74,10 @@ window.atlas.onEvent(({ type, payload }) => {
       break;
     case 'tool':
       if (payload.phase === 'call') for (const c of payload.calls) addChip(`araç: ${TOOL_LABELS[c.name] ?? c.name}`);
+      break;
+    case 'settings':
+      showInfo(payload);
+      if (conn !== 'idle') { endTurn(false); addChip(`yeni ayar: ses ${payload.voice} · ${payload.model}`); }
       break;
     case 'cost':
       showCost(payload, true);
@@ -163,7 +168,9 @@ ui.mic.addEventListener('click', () => setMic(!micOn));
 
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === 'm' && conn === 'open') { e.preventDefault(); setMic(!micOn); }
+  if (e.ctrlKey && e.key === ',') { e.preventDefault(); window.atlas.openSettings(); }
 });
+ui.settings.addEventListener('click', () => window.atlas.openSettings());
 
 // ── Maliyet ──────────────────────────────────────────────
 // Tahmin: ücretli katman fiyatı × gerçek token sayısı (her turun usageMetadata'sı). Ücretsiz katmanda fatura 0.
@@ -280,9 +287,13 @@ function frame(now) {
 
 }
 
-window.atlas.info().then((i) => {
-  ui.meta.textContent = `${i.model} · ses: ${i.voice} · bağlam ${Math.round(i.contextLimit / 1000)}k${i.googleSearch ? ' · arama açık' : ''}`;
+function showInfo(i) {
+  ui.meta.textContent = `${i.model} · ses: ${i.voice} · bellek ${Math.round(i.contextLimit / 1000)}k${i.googleSearch ? ' · arama açık' : ''}`;
   showCost(i.cost, false);
+}
+
+window.atlas.info().then((i) => {
+  showInfo(i);
   if (!i.hasKey) toast('GEMINI_API_KEY bulunamadı: proje kökündeki .env dosyasına ekle.');
 });
 requestAnimationFrame(frame);
