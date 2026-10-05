@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { INPUT_SAMPLE_RATE } from './config.js';
-import { toolConfig, runToolCalls, LOCAL_TOOLS } from './tools.js';
+import { buildToolset } from './tools/index.js';
 
 const MAX_RECONNECTS = 5;
 const FATAL_CLOSE = /quota|billing|api key|permission|not found|not supported|invalid/i;
@@ -16,14 +16,15 @@ const FATAL_CLOSE = /quota|billing|api key|permission|not found|not supported|in
  *   interrupted  kullanıcı söze girdi; çalan sesi hemen kes
  *   turnComplete model sırasını bitirdi
  *   transcript   { role: 'user' | 'model', text } — artımlı parçalar
- *   tool         { phase: 'call' | 'result', calls }
+ *   tool         { phase: 'call', calls } | { phase: 'result', traces } — trace: araç, argüman, Jev kararı, süre
  *   usage        o turun usageMetadata'sı (turda bir kez, birikimli değil)
  *   error        Error
  */
 export class LiveSession extends EventEmitter {
   #ai;
   #cfg;
-  #tools;
+  #toolset;
+  #userText = ''; // bu turda kullanıcının söyledikleri (Jev'e asistanın özeti yanında ham cümle olarak gider)
   #session = null;
   #gen = 0; // her bağlantıya numara; eski bağlantıdan gelen geç callback'ler yok sayılır
   #handle = null; // session resumption handle
@@ -33,10 +34,11 @@ export class LiveSession extends EventEmitter {
   #needsKey;
   state = 'idle';
 
-  constructor({ config, ai, tools = LOCAL_TOOLS }) {
+  /** @param {{ config, ai?, toolset? }} o  toolset verilmezse yalnız doğrudan kip, yetenek yok (saat). */
+  constructor({ config, ai, toolset }) {
     super();
     this.#cfg = config;
-    this.#tools = tools;
+    this.#toolset = toolset ?? buildToolset({ skills: [] });
     this.#needsKey = !ai;
     this.#ai = ai ?? new GoogleGenAI({ apiKey: config.apiKey });
   }
@@ -59,7 +61,8 @@ export class LiveSession extends EventEmitter {
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.#cfg.voice } } },
       inputAudioTranscription: {},
       outputAudioTranscription: {},
-      tools: toolConfig(this.#tools, { googleSearch: this.#cfg.googleSearch }),
+      // Ücretsiz katmanda googleSearch açıkken bağlantı anında 1011 "quota" ile kapanıyor (2026-10-05) → varsayılan kapalı.
+      tools: [{ functionDeclarations: this.#toolset.declarations }, ...(this.#cfg.googleSearch ? [{ googleSearch: {} }] : [])],
       // 15 dk sınırını kaldırır ve maliyete tavan koyar (bkz. config.contextLimit).
       contextWindowCompression: { triggerTokens: String(this.#cfg.contextLimit ?? 8000), slidingWindow: {} },
       sessionResumption: this.#handle ? { handle: this.#handle } : {},
@@ -117,17 +120,29 @@ export class LiveSession extends EventEmitter {
     for (const part of sc.modelTurn?.parts ?? []) {
       if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('audio/')) this.emit('audio', part.inlineData.data);
     }
-    if (sc.inputTranscription?.text) this.emit('transcript', { role: 'user', text: sc.inputTranscription.text });
+    if (sc.inputTranscription?.text) {
+      this.#userText += sc.inputTranscription.text;
+      this.emit('transcript', { role: 'user', text: sc.inputTranscription.text });
+    }
     if (sc.outputTranscription?.text) this.emit('transcript', { role: 'model', text: sc.outputTranscription.text });
-    if (sc.turnComplete) this.emit('turnComplete');
+    if (sc.turnComplete) {
+      this.#userText = '';
+      this.emit('turnComplete');
+    }
+  }
+
+  /** Toolset'in Jev'e verdiği ham kullanıcı cümlesi. */
+  get userText() {
+    return this.#userText.trim();
   }
 
   async #handleToolCall(calls) {
     this.emit('tool', { phase: 'call', calls });
-    const responses = (await runToolCalls(calls, this.#tools)).filter((r) => !this.#cancelledCalls.delete(r.id));
-    if (!responses.length) return;
-    this.emit('tool', { phase: 'result', calls: responses });
-    this.#session?.sendToolResponse({ functionResponses: responses });
+    const done = await Promise.all(calls.map(async (fc) => ({ fc, ...(await this.#toolset.run(fc)) })));
+    const live = done.filter(({ fc }) => !this.#cancelledCalls.delete(fc.id));
+    if (!live.length) return;
+    this.emit('tool', { phase: 'result', traces: live.map((d) => d.trace) });
+    this.#session?.sendToolResponse({ functionResponses: live.map(({ fc, response }) => ({ id: fc.id, name: fc.name, response })) });
   }
 
   #onClose(e) {
@@ -171,7 +186,19 @@ export class LiveSession extends EventEmitter {
     if (this.state === 'open') this.#session?.sendRealtimeInput({ audioStreamEnd: true });
   }
 
+  /** Uygulamadan modele bilgi (ör. zamanlayıcı bitti). Model bunu kullanıcıya sesli iletir. */
+  sendSystemNote(text) {
+    return this.#sendRaw(`[Sistem bildirimi — kullanıcı söylemedi] ${text}`);
+  }
+
+  /** Kullanıcının yazdığı metin (yazılı girişte transkript gelmez; Jev için tura kaydedilir). */
   sendText(text) {
+    const ok = this.#sendRaw(text);
+    if (ok) this.#userText = String(text);
+    return ok;
+  }
+
+  #sendRaw(text) {
     if (this.state !== 'open' || !this.#session || !text?.trim()) return false;
     this.#session.sendRealtimeInput({ text });
     return true;

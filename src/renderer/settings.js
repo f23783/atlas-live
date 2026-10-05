@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const ui = { voices: $('voices'), models: $('models'), contexts: $('contexts'), search: $('search'), save: $('save'), close: $('close'), status: $('status') };
+const ui = { voices: $('voices'), models: $('models'), toolModes: $('toolModes'), jevInfo: $('jevInfo'), contexts: $('contexts'), search: $('search'), save: $('save'), close: $('close'), status: $('status') };
 
 // Bellek seçeneklerinin açıklaması: ~1.500 ses token'ı/dk konuşma. Maliyet, 1 saatlik kesintisiz
 // konuşmanın 2026-10-05 tahmini (49,06 TL kur, ücretli katman) — bkz. Atlas-Live notu.
@@ -42,6 +42,25 @@ async function init() {
     ui.models.append(b);
   }
 
+  const TOOL_MODES = [
+    { id: 'direct', label: 'Doğrudan', note: 'Gemini tüm araçların tanımını görür ve kendisi seçer.' },
+    { id: 'jev', label: 'Jev', note: 'Gemini yalnız "araç bul" der; hangi aracın gerektiğine Jev (TypeSafe) karar verir.' },
+  ];
+  for (const m of TOOL_MODES) {
+    const b = el('button', { className: 'option', type: 'button', role: 'radio', dataset: { value: m.id } });
+    b.append(el('b', { textContent: m.label }), el('span', { textContent: m.note }));
+    if (m.id === 'jev' && !data.hasJevKey) {
+      b.disabled = true;
+      b.title = 'TYPESAFE_API_KEY yok (.env)';
+    }
+    b.addEventListener('click', () => pick('toolMode', m.id));
+    ui.toolModes.append(b);
+  }
+  const j = data.jev;
+  ui.jevInfo.textContent = data.hasJevKey
+    ? `Jev harcaması: $${j.total_usd < 0.01 ? j.total_usd.toPrecision(2) : j.total_usd.toFixed(2)} / $${j.budget_usd} · ${j.calls} çağrı`
+    : 'Jev için .env dosyasına TYPESAFE_API_KEY ekle.';
+
   for (const c of data.contextLimits) {
     const info = CONTEXT_INFO[c] ?? { label: `${c / 1000}k`, memory: '', hour: '' };
     const b = el('button', { className: 'segment', type: 'button', role: 'radio', dataset: { value: String(c) } });
@@ -78,6 +97,7 @@ function render() {
   };
   mark(ui.voices, draft.voice);
   mark(ui.models, draft.model);
+  mark(ui.toolModes, draft.toolMode);
   mark(ui.contexts, draft.contextLimit);
   ui.search.checked = draft.googleSearch;
 

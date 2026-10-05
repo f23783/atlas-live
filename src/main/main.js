@@ -6,13 +6,14 @@ import { attachTheme } from './theme.js';
 
 let win = null;
 let settingsWin = null;
+const BASE_W = 460, LAB_W = 520; // ana sütun / test paneli genişliği
 // Doğrulama: ATLAS_SNAPSHOT=dosya.png → pencere gizli açılır, ekran görüntüsü alınır, uygulama kapanır.
 const SNAPSHOT = process.env.ATLAS_SNAPSHOT;
 const SNAPSHOT_ASK = process.env.ATLAS_SNAPSHOT_ASK; // verilirse: mikrofon kapalı bağlan, bu metni sor, cevaptan sonra çek
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 460,
+    width: BASE_W,
     height: 720,
     minWidth: 360,
     backgroundColor: '#0b0d12',
@@ -28,7 +29,8 @@ function createWindow() {
   });
   win.setMenuBarVisibility(false);
   attachTheme(win);
-  win.loadFile(path.join(ROOT, 'src/renderer/index.html'), SNAPSHOT_ASK ? { query: { ask: SNAPSHOT_ASK } } : undefined);
+  const query = { ...(SNAPSHOT_ASK && { ask: SNAPSHOT_ASK }), ...(process.env.ATLAS_SNAPSHOT_LAB && { lab: '1' }) };
+  win.loadFile(path.join(ROOT, 'src/renderer/index.html'), Object.keys(query).length ? { query } : undefined);
   win.on('closed', () => (win = null));
   if (SNAPSHOT) {
     // ATLAS_SNAPSHOT_SETTINGS=1 → ayar penceresinin görüntüsü
@@ -70,12 +72,21 @@ function openSettings() {
   return settingsWin;
 }
 
+// Test paneli açılınca pencere sağa doğru genişler, kapanınca eski genişliğine döner.
+function setLabOpen(open) {
+  if (!win) return;
+  const [w, h] = win.getSize();
+  const target = open ? Math.max(w, BASE_W + LAB_W) : BASE_W;
+  win.setMinimumSize(open ? BASE_W + 360 : 360, 500);
+  if (w !== target) win.setSize(target, h);
+}
+
 app.whenReady().then(() => {
   // Yalnız mikrofon izni ver, gerisini reddet.
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb, details) =>
     cb(perm === 'media' && (details.mediaTypes ?? []).every((t) => t === 'audio')));
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === 'media');
-  const stopLive = registerIpc({ getWindow: () => win, openSettings });
+  const stopLive = registerIpc({ getWindow: () => win, openSettings, setLabOpen });
   createWindow();
   app.on('activate', () => BrowserWindow.getAllWindows().length === 0 && createWindow());
   app.on('before-quit', stopLive);

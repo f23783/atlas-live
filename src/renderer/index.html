@@ -9,9 +9,13 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+<div class="app">
   <header class="top">
     <div class="brand">Atlas</div>
     <div class="cost" id="cost" tabindex="0" hidden></div>
+ <button class="icon-btn small" id="labBtn" aria-label="Test paneli" aria-pressed="false" title="Test paneli (Ctrl+T)">
+      <svg viewBox="0 0 24 24"><path d="M9 3h6v2h-1v4.4l5.2 8.9A2.4 2.4 0 0 1 17.1 22H6.9a2.4 2.4 0 0 1-2.1-3.7L10 9.4V5H9V3Zm3 8.5L8.6 17h6.8L12 11.5Z"/></svg>
+    </button>
     <button class="icon-btn small" id="settings" aria-label="Ayarlar" title="Ayarlar (Ctrl+,)">
       <svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.5 7.5 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.5 7.5 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.5 7.5 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.5 7.5 0 0 0 1.7-1l2.5 1 2-3.5ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
     </button>
@@ -46,6 +50,22 @@
       </button>
     </form>
   </footer>
+</div>
+
+<aside class="lab" id="lab" hidden aria-label="Test paneli">
+  <div class="lab-head">
+    <b>Test</b>
+    <div class="seg" id="modeSeg" role="radiogroup" aria-label="Araç seçimi">
+      <button type="button" role="radio" data-mode="direct">Doğrudan</button>
+      <button type="button" role="radio" data-mode="jev">Jev</button>
+    </div>
+    <label class="dry"><input type="checkbox" id="dryRun"> kuru</label>
+  </div>
+  <p class="lab-meta" id="labMeta"></p>
+  <div class="presets" id="presets"></div>
+  <div class="lab-stats" id="labStats"></div>
+  <div class="lab-log" id="labLog"><p class="empty">Araç çağrıları burada görünecek.</p></div>
+</aside>
 
   <script type="module" src="app.js"></script>
 </body>

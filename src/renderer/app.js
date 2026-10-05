@@ -73,7 +73,10 @@ window.atlas.onEvent(({ type, payload }) => {
       appendTranscript(payload.role, payload.text);
       break;
     case 'tool':
-      if (payload.phase === 'call') for (const c of payload.calls) addChip(`araç: ${TOOL_LABELS[c.name] ?? c.name}`);
+      if (payload.phase === 'result') for (const t of payload.traces) { addChip(chipText(t)); lab.log(t); }
+      break;
+    case 'timer':
+      toast(`⏰ ${payload.label}: süre doldu.`);
       break;
     case 'settings':
       showInfo(payload);
@@ -81,6 +84,7 @@ window.atlas.onEvent(({ type, payload }) => {
       break;
     case 'cost':
       showCost(payload, true);
+      lab.setBudget(payload.jev);
       break;
     case 'error':
       toast(payload);
@@ -88,7 +92,17 @@ window.atlas.onEvent(({ type, payload }) => {
   }
 });
 
-const TOOL_LABELS = { get_current_time: 'saate bakıldı' };
+const SKILL_LABELS = { get_current_time: 'saat', zamanlayici: 'zamanlayıcı', medya: 'medya', hava_durumu: 'hava durumu', sistem_durumu: 'sistem durumu' };
+const label = (n) => SKILL_LABELS[n] ?? n;
+const pctf = (x) => `%${Math.round(x * 100)}`;
+// Jev kuruşun binde biri mertebesinde harcar: küçük tutarlarda anlamlı basamak göster.
+const usd = (x) => `$${x >= 0.01 ? x.toFixed(2) : x.toPrecision(2)}`;
+
+function chipText(t) {
+  if (t.jev) return t.jev.choice === 'hicbiri' ? 'Jev → araç yok' : `Jev → ${label(t.jev.choice)} (${pctf(t.jev.confidence)})`;
+  const tail = t.response?.hata ? ' ✗' : t.dryRun && t.response?.kuru ? ' (kuru)' : '';
+  return `araç: ${label(t.skill ?? t.name)}${tail}`;
+}
 
 function setConn(s) {
   conn = s;
@@ -97,6 +111,7 @@ function setConn(s) {
   ui.statusText.textContent = { idle: 'Kapalı', connecting: 'Bağlanıyor', open: 'Bağlı', reconnecting: 'Yeniden bağlanıyor' }[s] ?? s;
   ui.orb.setAttribute('aria-label', s === 'idle' ? 'Bağlan' : 'Bağlantıyı kes');
   for (const el of [ui.mic, ui.input, ui.send]) el.disabled = !open;
+  lab.setEnabled(open);
   if (open) ui.input.focus();
 }
 
@@ -146,15 +161,19 @@ const scrollDown = () => (ui.transcript.scrollTop = ui.transcript.scrollHeight);
 
 // ── Girdi ────────────────────────────────────────────────
 
-ui.composer.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = ui.input.value.trim();
+async function sendText(text) {
   if (!text || conn !== 'open') return;
-  ui.input.value = '';
   endTurn(false);
   appendTranscript('user', text);
   turn.user.classList.remove('live');
   await window.atlas.sendText(text);
+}
+
+ui.composer.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = ui.input.value.trim();
+  ui.input.value = '';
+  sendText(text);
 });
 
 function setMic(on) {
@@ -169,6 +188,7 @@ ui.mic.addEventListener('click', () => setMic(!micOn));
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === 'm' && conn === 'open') { e.preventDefault(); setMic(!micOn); }
   if (e.ctrlKey && e.key === ',') { e.preventDefault(); window.atlas.openSettings(); }
+  if (e.ctrlKey && e.key.toLowerCase() === 't') { e.preventDefault(); lab.toggle(); }
 });
 ui.settings.addEventListener('click', () => window.atlas.openSettings());
 
@@ -287,9 +307,168 @@ function frame(now) {
 
 }
 
+// ── Test paneli ──────────────────────────────────────────
+// Gemini ile araçları denemek için: kip geçişi (Doğrudan/Jev), kuru çalıştırma, hazır cümleler, çağrı kaydı.
+
+const PRESETS = [
+  ['Müziği duraklat', 'medya'],
+  ['Sesi yüzde 30 yap', 'medya'],
+  ['Şu an ne çalıyor?', 'medya'],
+  ['3 dakikalık çay zamanlayıcısı kur', 'zamanlayici'],
+  ['Kaç zamanlayıcım var?', 'zamanlayici'],
+  ["Yarın Ankara'da yağmur var mı?", 'hava_durumu'],
+  ["İzmir'de hava nasıl?", 'hava_durumu'],
+  ['Ekran kartı kaç derece?', 'sistem_durumu'],
+  ['Disk ne kadar dolu?', 'sistem_durumu'],
+  ['Bana kısa bir fıkra anlat', null],
+  ["Fransa'nın başkenti neresi?", null],
+];
+
+const lab = (() => {
+  const el = {
+    panel: $('lab'), btn: $('labBtn'), seg: $('modeSeg'), dry: $('dryRun'),
+    meta: $('labMeta'), presets: $('presets'), stats: $('labStats'), log: $('labLog'),
+  };
+  const stats = { calls: 0, jevMs: [], jevConf: [] };
+  let info = null;
+  let budget = null;
+
+  for (const [text, expect] of PRESETS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.title = expect ? `Beklenen araç: ${label(expect)}` : 'Tuzak: araç gerekmemeli';
+    if (!expect) b.classList.add('trap');
+    b.addEventListener('click', () => sendText(text));
+    el.presets.append(b);
+  }
+
+  function setOpen(open) {
+    el.panel.hidden = !open;
+    document.body.classList.toggle('lab-open', open);
+    el.btn.setAttribute('aria-pressed', String(open));
+    window.atlas.setLabOpen(open);
+    try { localStorage.setItem('lab', open ? '1' : ''); } catch { /* depolama yok */ }
+  }
+  el.btn.addEventListener('click', () => setOpen(el.panel.hidden));
+
+  for (const b of el.seg.children) {
+    b.addEventListener('click', async () => {
+      if (b.dataset.mode === info?.toolMode) return;
+      if (b.dataset.mode === 'jev' && !info?.hasJevKey) return meta('TYPESAFE_API_KEY yok — .env dosyasına ekle.', true);
+      meta(conn === 'idle' ? 'Kaydediliyor…' : 'Kip değişiyor, oturum yeniden başlıyor…');
+      const r = await window.atlas.saveSettings({ toolMode: b.dataset.mode });
+      if (!r.ok) meta(r.error, true);
+    });
+  }
+  el.dry.addEventListener('change', () => window.atlas.setDryRun(el.dry.checked));
+
+  function meta(text, warn = false) {
+    el.meta.textContent = text;
+    el.meta.classList.toggle('warn', warn);
+  }
+
+  function setInfo(i) {
+    info = i;
+    for (const b of el.seg.children) b.setAttribute('aria-checked', String(b.dataset.mode === i.toolMode));
+    meta(i.toolMode === 'jev'
+      ? 'Jev kipi: Gemini yalnız arac_bul + arac_calistir görür; aracı Jev seçer.'
+      : 'Doğrudan kip: Gemini dört aracın tanımını görür ve kendisi seçer.');
+    setBudget(i.cost?.jev);
+  }
+
+  function setBudget(j) {
+    if (j) budget = j;
+    renderStats();
+  }
+
+  function renderStats() {
+    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+    const ms = avg(stats.jevMs), conf = avg(stats.jevConf);
+    const cells = [
+      [stats.calls, 'araç çağrısı'],
+      [ms == null ? '—' : `${Math.round(ms)} ms`, 'Jev ort. süre'],
+      [conf == null ? '—' : pctf(conf), 'Jev ort. güven'],
+      [budget ? usd(budget.total_usd) : '—', budget ? `Jev harcama / $${budget.budget_usd}` : 'Jev harcama'],
+    ];
+    el.stats.replaceChildren(...cells.map(([v, k]) => {
+      const d = document.createElement('div');
+      d.className = 'stat';
+      d.append(Object.assign(document.createElement('b'), { textContent: v }), Object.assign(document.createElement('span'), { textContent: k }));
+      return d;
+    }));
+  }
+
+  function log(t) {
+    el.log.querySelector('.empty')?.remove();
+    stats.calls++;
+    const e = document.createElement('div');
+    const err = Boolean(t.response?.hata);
+    e.className = `entry ${t.jev ? 'jev' : t.mode === 'direct' ? 'direct' : ''} ${err ? 'err' : ''}`;
+    const row = document.createElement('div');
+    row.className = 'row';
+    const add = (cls, text) => row.append(Object.assign(document.createElement('span'), { className: cls, textContent: text }));
+    const time = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    if (t.jev) {
+      stats.jevMs.push(t.jev.ms);
+      stats.jevConf.push(t.jev.confidence);
+      add('tag', 'JEV');
+      add('skill', t.jev.choice === 'hicbiri' ? 'hiçbiri' : label(t.jev.choice));
+      add('num', `güven ${pctf(t.jev.confidence)} · ${t.jev.ms} ms · ${t.jev.tokens} tok · ${usd(t.jev.usd)} · ${time}`);
+      e.append(row);
+      const said = document.createElement('div');
+      said.className = 'said';
+      said.textContent = `“${t.jev.userText || '(ham cümle yok)'}” → özet: “${t.args?.ihtiyac ?? ''}”`;
+      e.append(said, probBar(t.jev.probabilities));
+    } else {
+      add('tag', t.name === 'arac_calistir' ? 'ÇALIŞTIR' : t.mode === 'direct' ? 'DOĞRUDAN' : 'ARAÇ');
+      add('skill', label(t.skill ?? t.name));
+      add('num', `${t.ms} ms${t.dryRun ? ' · kuru' : ''} · ${time}`);
+      e.append(row);
+      const pre = document.createElement('pre');
+      const args = t.name === 'arac_calistir' ? t.args : t.args;
+      pre.textContent = `${JSON.stringify(args)}\n→ ${JSON.stringify(t.response).slice(0, 400)}`;
+      e.append(pre);
+    }
+    el.log.prepend(e);
+    renderStats();
+  }
+
+  function probBar(p) {
+    const wrap = document.createElement('div');
+    const bar = document.createElement('div');
+    bar.className = 'bar-p';
+    const sorted = Object.entries(p).sort((a, b) => b[1] - a[1]);
+    const colors = ['var(--accent)', 'var(--user)', 'var(--text-muted)', 'var(--outline)', 'var(--bg-high)'];
+    sorted.forEach(([, v], i) => {
+      const s = document.createElement('i');
+      s.style.width = `${v * 100}%`;
+      s.style.background = colors[Math.min(i, colors.length - 1)];
+      bar.append(s);
+    });
+    const txt = document.createElement('div');
+    txt.className = 'probs';
+    txt.textContent = sorted.filter(([, v]) => v >= 0.01).map(([k, v]) => `${label(k)} ${pctf(v)}`).join(' · ');
+    wrap.append(bar, txt);
+    return wrap;
+  }
+
+  function setEnabled(on) {
+    for (const b of el.presets.children) b.disabled = !on;
+  }
+
+  let initial = false;
+  try { initial = localStorage.getItem('lab') === '1'; } catch { /* depolama yok */ }
+  if (initial) setOpen(true);
+  setEnabled(false);
+  return { log, setInfo, setBudget, setEnabled, toggle: () => setOpen(el.panel.hidden) };
+})();
+
 function showInfo(i) {
   ui.meta.textContent = `${i.model} · ses: ${i.voice} · bellek ${Math.round(i.contextLimit / 1000)}k${i.googleSearch ? ' · arama açık' : ''}`;
   showCost(i.cost, false);
+  lab.setInfo(i);
 }
 
 window.atlas.info().then((i) => {
@@ -300,6 +479,7 @@ requestAnimationFrame(frame);
 
 // Doğrulama modu (main.js ATLAS_SNAPSHOT_ASK): mikrofon kapalı bağlan, metni sor.
 const ask = new URLSearchParams(location.search).get('ask');
+if (new URLSearchParams(location.search).get('lab') && document.getElementById('lab').hidden) lab.toggle();
 if (ask) {
   setMic(false);
   connect().then(() => setTimeout(() => {

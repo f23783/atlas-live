@@ -27,6 +27,7 @@ const SCHEMA = {
   model: (v) => MODELS.some((x) => x.id === v),
   contextLimit: (v) => CONTEXT_LIMITS.includes(v),
   googleSearch: (v) => typeof v === 'boolean',
+  toolMode: (v) => v === 'direct' || v === 'jev',
 };
 
 export class SettingsStore {

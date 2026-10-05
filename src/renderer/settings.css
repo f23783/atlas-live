@@ -75,6 +75,7 @@ section > h2 + * { margin-top: 10px; }
 }
 .option:hover { background: var(--bg-high); }
 .option[aria-checked="true"] { border-color: var(--accent); }
+.option:disabled { opacity: .45; cursor: default; }
 .option b { display: block; }
 .option span { font-size: 12.5px; color: var(--text-muted); }
 .option:focus-visible, .segment:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

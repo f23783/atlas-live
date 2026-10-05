@@ -1,8 +1,11 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+// Electron'un app.getPath('userData') ile aynı yer (paket adı atlas-live); başsız betikler de buraya yazar.
+export const USER_DATA = process.env.ATLAS_USER_DATA || path.join(os.homedir(), '.config', 'atlas-live');
 
 // Gemini Live ses formatları (API sözleşmesi): girdi 16 kHz, çıktı 24 kHz, 16-bit PCM LE mono.
 export const INPUT_SAMPLE_RATE = 16000;
@@ -44,6 +47,11 @@ export function loadConfig(env = loadEnv(), settings = {}) {
     // tamamını faturaladığı için maliyetin tavanı bu: 8k ≈ son ~5 dk konuşma.
     contextLimit: settings.contextLimit ?? (Number(env.ATLAS_CONTEXT_LIMIT) || 8000),
     usdTryFallback: Number(env.ATLAS_USD_TRY) || 49.06,
+    // Araç seçimi: 'direct' (Gemini tüm araçları görür) | 'jev' (Jev seçer). Bkz. tools/index.js
+    toolMode: settings.toolMode ?? (env.ATLAS_TOOL_MODE === 'jev' ? 'jev' : 'direct'),
+    typesafeKey: env.TYPESAFE_API_KEY || '',
+    // Fido'nun Jev için verdiği toplam bütçe (2026-10-05): $10. Defter: USER_DATA/jev-usage.json
+    jevBudgetUsd: Number(env.ATLAS_JEV_BUDGET_USD) || 10,
     get systemInstruction() {
       return this.googleSearch ? `${DEFAULTS.systemInstruction}\n${DEFAULTS.searchInstruction}` : DEFAULTS.systemInstruction;
     },

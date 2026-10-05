@@ -82,7 +82,7 @@ describe('LiveSession', () => {
     const [resp] = ai.conns[0].toolResponses;
     expect(resp.functionResponses[0]).toMatchObject({ id: 'c1', name: 'get_current_time' });
     expect(resp.functionResponses[0].response.now).toBeTruthy();
-    expect(resp.functionResponses[1].response.error).toMatch(/Bilinmeyen/);
+    expect(resp.functionResponses[1].response.hata).toMatch(/Bilinmeyen/);
   });
 
   it('goAway gelince son handle ile yeniden bağlanır, eski bağlantının kapanışı hata üretmez', async () => {

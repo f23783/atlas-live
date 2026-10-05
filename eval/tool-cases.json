@@ -1,0 +1,43 @@
+{
+  "_not": "Araç seçimi değerlendirmesi. expect: beklenen yetenek, null = araç gerekmemeli (tuzak). Gündelik Türkçe, Fido'nun ağzından. Tuzakların bir kısmı araç adlarıyla aynı kelimeleri içerir (müzik, hava, sistem).",
+  "cases": [
+    { "say": "müziği durdur", "expect": "medya" },
+    { "say": "bu şarkıyı geç", "expect": "medya" },
+    { "say": "bir önceki şarkıya dön", "expect": "medya" },
+    { "say": "sesi biraz aç", "expect": "medya" },
+    { "say": "çok gürültülü, kıs şunu", "expect": "medya" },
+    { "say": "sesi yüzde elli yap", "expect": "medya" },
+    { "say": "sessize al", "expect": "medya" },
+    { "say": "şu an ne dinliyorum", "expect": "medya" },
+
+    { "say": "beş dakika sonra bana haber ver", "expect": "zamanlayici" },
+    { "say": "makarna için yirmi dakikalık zamanlayıcı kur", "expect": "zamanlayici" },
+    { "say": "kurduğum zamanlayıcıyı iptal et", "expect": "zamanlayici" },
+    { "say": "zamanlayıcıda ne kadar kaldı", "expect": "zamanlayici" },
+    { "say": "yumurta için yedi dakika say", "expect": "zamanlayici" },
+    { "say": "bir saat sonra toplantım var, hatırlat", "expect": "zamanlayici" },
+
+    { "say": "dışarısı soğuk mu", "expect": "hava_durumu" },
+    { "say": "yarın şemsiye almalı mıyım", "expect": "hava_durumu" },
+    { "say": "hafta sonu İstanbul'da hava nasıl olacak", "expect": "hava_durumu" },
+    { "say": "Antalya'da şu an kaç derece", "expect": "hava_durumu" },
+    { "say": "bu hafta kar yağacak mı", "expect": "hava_durumu" },
+    { "say": "bugün rüzgar var mı", "expect": "hava_durumu" },
+
+    { "say": "bilgisayar ısındı mı", "expect": "sistem_durumu" },
+    { "say": "ram ne kadar dolu", "expect": "sistem_durumu" },
+    { "say": "şarjım kaç", "expect": "sistem_durumu" },
+    { "say": "işlemci yükü nasıl", "expect": "sistem_durumu" },
+    { "say": "diskte ne kadar yer kaldı", "expect": "sistem_durumu" },
+    { "say": "ekran kartı ne kadar zorlanıyor", "expect": "sistem_durumu" },
+
+    { "say": "bana bir fıkra anlat", "expect": null },
+    { "say": "Türkiye'nin başkenti neresi", "expect": null },
+    { "say": "nasılsın bugün", "expect": null },
+    { "say": "fotosentez nedir kısaca", "expect": null },
+    { "say": "müzik zevkin nasıl", "expect": null },
+    { "say": "köpeğime havalı bir isim öner", "expect": null },
+    { "say": "sistem tasarımı nedir, bir cümleyle", "expect": null },
+    { "say": "zaman yönetimi için bir tavsiye ver", "expect": null }
+  ]
+}

@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('atlas', {
   sendAudio: (pcm16) => ipcRenderer.send('live:audio', pcm16),
   endAudio: () => ipcRenderer.send('live:audio-end'),
   openSettings: () => ipcRenderer.invoke('settings:open'),
+  setDryRun: (on) => ipcRenderer.invoke('live:dry-run', on),
+  setLabOpen: (open) => ipcRenderer.invoke('ui:lab', open),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (patch) => ipcRenderer.invoke('settings:save', patch),
   previewVoice: (voice, model) => ipcRenderer.invoke('settings:preview', voice, model),
