@@ -39,7 +39,7 @@ describe('LiveSession', () => {
     const c = ai.conns[0].config;
     expect(c.responseModalities).toEqual(['AUDIO']);
     expect(c.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName).toBe('Kore');
-    expect(c.contextWindowCompression).toEqual({ slidingWindow: {} });
+    expect(c.contextWindowCompression).toEqual({ triggerTokens: '8000', slidingWindow: {} });
     expect(c.inputAudioTranscription).toEqual({});
   });
 
@@ -67,6 +67,13 @@ describe('LiveSession', () => {
       ['turnComplete', undefined],
       ['interrupted', undefined],
     ]);
+  });
+
+  it('usageMetadata\'yı usage olayı olarak iletir', () => {
+    const got = [];
+    s.on('usage', (u) => got.push(u));
+    ai.conns[0].callbacks.onmessage({ usageMetadata: { promptTokenCount: 5 }, serverContent: { turnComplete: true } });
+    expect(got).toEqual([{ promptTokenCount: 5 }]);
   });
 
   it('araç çağrısını çalıştırıp cevabı id ile geri yollar', async () => {

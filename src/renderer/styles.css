@@ -51,6 +51,17 @@ body {
 .status[data-state="error"] .dot { background: var(--error); }
 @keyframes blink { 50% { opacity: .3; } }
 
+.cost {
+  margin-left: auto; margin-right: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+.cost b { color: var(--text); font-weight: 600; }
+.cost.flash b { color: var(--accent); transition: color 0s; }
+.cost b { transition: color .8s; }
+
 /* ── Sahne (orb) ───────────────────────────── */
 .stage { display: grid; justify-items: center; padding: 8px 0 4px; }
 .orb {

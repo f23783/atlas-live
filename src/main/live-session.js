@@ -17,6 +17,7 @@ const FATAL_CLOSE = /quota|billing|api key|permission|not found|not supported|in
  *   turnComplete model sırasını bitirdi
  *   transcript   { role: 'user' | 'model', text } — artımlı parçalar
  *   tool         { phase: 'call' | 'result', calls }
+ *   usage        o turun usageMetadata'sı (turda bir kez, birikimli değil)
  *   error        Error
  */
 export class LiveSession extends EventEmitter {
@@ -59,8 +60,8 @@ export class LiveSession extends EventEmitter {
       inputAudioTranscription: {},
       outputAudioTranscription: {},
       tools: toolConfig(this.#tools, { googleSearch: this.#cfg.googleSearch }),
-      // 15 dk sınırını kaldırır; bağlantı ~10 dk'da yenilenince handle ile kaldığımız yerden devam ederiz.
-      contextWindowCompression: { slidingWindow: {} },
+      // 15 dk sınırını kaldırır ve maliyete tavan koyar (bkz. config.contextLimit).
+      contextWindowCompression: { triggerTokens: String(this.#cfg.contextLimit ?? 8000), slidingWindow: {} },
       sessionResumption: this.#handle ? { handle: this.#handle } : {},
     };
   }
@@ -97,6 +98,7 @@ export class LiveSession extends EventEmitter {
   }
 
   #onMessage(m) {
+    if (m.usageMetadata) this.emit('usage', m.usageMetadata);
     if (m.sessionResumptionUpdate?.resumable && m.sessionResumptionUpdate.newHandle) {
       this.#handle = m.sessionResumptionUpdate.newHandle;
     }

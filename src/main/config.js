@@ -39,6 +39,10 @@ export function loadConfig(env = loadEnv()) {
     voice: env.ATLAS_VOICE || DEFAULTS.voice,
     // Ücretsiz katmanda Live + googleSearch kota hatası veriyor; billing açılınca ATLAS_GOOGLE_SEARCH=1.
     googleSearch: env.ATLAS_GOOGLE_SEARCH === '1',
+    // Sunucu bağlamı bu kadar token'a ulaşınca eski kısmı atar (yarısına indirir). Live her turda bağlamın
+    // tamamını faturaladığı için maliyetin tavanı bu: 8k ≈ son ~5 dk konuşma. Bkz. README maliyet notu.
+    contextLimit: Number(env.ATLAS_CONTEXT_LIMIT) || 8000,
+    usdTryFallback: Number(env.ATLAS_USD_TRY) || 49.06,
     get systemInstruction() {
       return this.googleSearch ? `${DEFAULTS.systemInstruction}\n${DEFAULTS.searchInstruction}` : DEFAULTS.systemInstruction;
     },

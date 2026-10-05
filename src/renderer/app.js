@@ -5,6 +5,7 @@ const ui = {
   orb: $('orb'), canvas: $('orbCanvas'), hint: $('hint'), meta: $('meta'),
   status: $('status'), statusText: $('statusText'),
   transcript: $('transcript'), empty: $('empty'), toast: $('toast'),
+  cost: $('cost'),
   mic: $('mic'), composer: $('composer'), input: $('textInput'), send: document.querySelector('.send'),
 };
 
@@ -72,6 +73,9 @@ window.atlas.onEvent(({ type, payload }) => {
       break;
     case 'tool':
       if (payload.phase === 'call') for (const c of payload.calls) addChip(`araç: ${TOOL_LABELS[c.name] ?? c.name}`);
+      break;
+    case 'cost':
+      showCost(payload, true);
       break;
     case 'error':
       toast(payload);
@@ -160,6 +164,26 @@ ui.mic.addEventListener('click', () => setMic(!micOn));
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === 'm' && conn === 'open') { e.preventDefault(); setMic(!micOn); }
 });
+
+// ── Maliyet ──────────────────────────────────────────────
+// Tahmin: ücretli katman fiyatı × gerçek token sayısı (her turun usageMetadata'sı). Ücretsiz katmanda fatura 0.
+
+const tl = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function showCost(c, flash) {
+  ui.cost.hidden = false;
+  ui.cost.innerHTML = '';
+  const b = (v) => Object.assign(document.createElement('b'), { textContent: tl.format(v) });
+  ui.cost.append('oturum ', b(c.session), ' · bugün ', b(c.today));
+  ui.cost.title =
+    `Bu ay: ${tl.format(c.month)}\n` +
+    `Tahmini — ücretli katman fiyatıyla, gerçek token sayısından.\n` +
+    `Kur: ${c.rate.toLocaleString('tr-TR')} (${c.rateSource})`;
+  if (flash) {
+    ui.cost.classList.add('flash');
+    requestAnimationFrame(() => requestAnimationFrame(() => ui.cost.classList.remove('flash')));
+  }
+}
 
 // ── Bildirim ─────────────────────────────────────────────
 
@@ -257,7 +281,8 @@ function frame(now) {
 }
 
 window.atlas.info().then((i) => {
-  ui.meta.textContent = `${i.model} · ses: ${i.voice}${i.googleSearch ? ' · arama açık' : ''}`;
+  ui.meta.textContent = `${i.model} · ses: ${i.voice} · bağlam ${Math.round(i.contextLimit / 1000)}k${i.googleSearch ? ' · arama açık' : ''}`;
+  showCost(i.cost, false);
   if (!i.hasKey) toast('GEMINI_API_KEY bulunamadı: proje kökündeki .env dosyasına ekle.');
 });
 requestAnimationFrame(frame);
