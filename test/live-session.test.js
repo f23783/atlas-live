@@ -115,7 +115,7 @@ describe('LiveSession', () => {
     expect(ai.conns).toHaveLength(2);
     s.stop();
     expect(s.state).toBe('closed');
-    expect(s.sendText('x')).toBe(false);
+    expect(await s.sendText('x')).toBe(false);
     await new Promise((r) => setTimeout(r, 600));
     expect(ai.conns).toHaveLength(2);
   });

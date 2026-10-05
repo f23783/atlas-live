@@ -50,7 +50,7 @@ export function registerIpc({ getWindow, openSettings, setLabOpen }) {
 
   let dryRun = false; // test panelindeki "kuru" anahtarı; kalıcı değil
   function toolsetFor(c) {
-    const jev = c.toolMode === 'jev' ? new JevClient({ apiKey: c.typesafeKey, ledger: jevLedger }) : null;
+    const jev = c.toolMode !== 'direct' ? new JevClient({ apiKey: c.typesafeKey, ledger: jevLedger }) : null;
     return buildToolset({ mode: c.toolMode, skills: skillRegistry(timers), jev, dryRun: () => dryRun, userText: () => session?.userText ?? '' });
   }
   const info = () => {
@@ -64,7 +64,7 @@ export function registerIpc({ getWindow, openSettings, setLabOpen }) {
     session?.stop();
     session = null;
     const c = config();
-    if (c.toolMode === 'jev' && !c.typesafeKey) return { ok: false, error: 'Jev kipi seçili ama TYPESAFE_API_KEY yok (.env).' };
+    if (c.toolMode !== 'direct' && !c.typesafeKey) return { ok: false, error: 'Jev kipi seçili ama TYPESAFE_API_KEY yok (.env).' };
     session = new LiveSession({ config: c, toolset: toolsetFor(c) });
     for (const ev of FORWARDED) session.on(ev, (p) => emit(ev, p));
     // Ses base64 olarak gelir; UI'a ham bayt yolla (IPC'de Uint8Array olarak varır, çözme maliyeti yok).

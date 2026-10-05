@@ -44,12 +44,13 @@ async function init() {
 
   const TOOL_MODES = [
     { id: 'direct', label: 'Doğrudan', note: 'Gemini tüm araçların tanımını görür ve kendisi seçer.' },
-    { id: 'jev', label: 'Jev', note: 'Gemini yalnız "araç bul" der; hangi aracın gerektiğine Jev (TypeSafe) karar verir.' },
+    { id: 'jev', label: 'Jev', note: 'Gemini önce "araç bul" der, aracı Jev (TypeSafe) seçer, sonra çalıştırır. İki tur.' },
+    { id: 'jev_pre', label: 'Jev ön-seçim', note: 'Jev cümleye Gemini\'den önce bakar, öneriyi mesaja ekler. Tek tur. Şimdilik yalnız yazılı girişte.' },
   ];
   for (const m of TOOL_MODES) {
     const b = el('button', { className: 'option', type: 'button', role: 'radio', dataset: { value: m.id } });
     b.append(el('b', { textContent: m.label }), el('span', { textContent: m.note }));
-    if (m.id === 'jev' && !data.hasJevKey) {
+    if (m.id !== 'direct' && !data.hasJevKey) {
       b.disabled = true;
       b.title = 'TYPESAFE_API_KEY yok (.env)';
     }

@@ -73,6 +73,26 @@ describe('buildToolset', () => {
   });
 });
 
+describe('jev_pre (ön-seçim)', () => {
+  it('Gemini yalnız saat + arac_calistir görür, sistem notu var', () => {
+    const ts = buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('medya') });
+    expect(names(ts)).toEqual(['get_current_time', 'arac_calistir']);
+    expect(ts.systemNote).toMatch(/Araç önerisi/);
+  });
+
+  it('araç gerekiyorsa şemalı öneri notu üretir; gerekmiyorsa, emin değilse ya da Jev çökerse not yok', async () => {
+    const yes = await buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('hava_durumu') }).preRoute('yarın şemsiye lazım mı');
+    expect(yes.note).toMatch(/"hava_durumu"/);
+    expect(yes.note).toMatch(/"sehir"/);
+    expect(yes.trace).toMatchObject({ name: 'on_secim', skill: 'hava_durumu' });
+    expect((await buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('hicbiri') }).preRoute('fıkra anlat')).note).toBeNull();
+    expect((await buildToolset({ mode: 'jev_pre', skills: skills(), jev: fakeJev('medya', 0.3) }).preRoute('x')).note).toBeNull();
+    const down = await buildToolset({ mode: 'jev_pre', skills: skills(), jev: { ask: async () => { throw new Error('ağ yok'); } } }).preRoute('x');
+    expect(down.note).toBeNull();
+    expect(down.trace.response.hata).toMatch(/ağ yok/);
+  });
+});
+
 describe('validateArgs', () => {
   const schema = { properties: { islem: { type: 'STRING', enum: ['a', 'b'] }, n: { type: 'INTEGER' } }, required: ['islem'] };
   it('eksik, bilinmeyen, enum dışı ve sayı olmayan değeri yakalar', () => {

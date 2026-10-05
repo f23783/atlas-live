@@ -1,7 +1,7 @@
 // Araç seçimi değerlendirmesi: Doğrudan (Gemini seçer) vs Jev (TypeSafe seçer).
 //
 //   node scripts/eval-tools.js --jev-only            Jev tek başına (Gemini yok): Türkçe isabet, sıra kararlılığı, gecikme
-//   node scripts/eval-tools.js                       uçtan uca, iki kip (her vaka taze Live oturumu, araçlar kuru)
+//   node scripts/eval-tools.js                       uçtan uca, üç kip (her vaka taze Live oturumu, araçlar kuru)
 //   node scripts/eval-tools.js --modes jev --limit 5
 //
 // Vakalar: eval/tool-cases.json. Rapor: out/eval-tools-<zaman>.json + .md
@@ -64,7 +64,7 @@ async function runCase(mode, c) {
   let session;
   const toolset = buildToolset({
     mode, skills: skillRegistry(timers), dryRun: true,
-    jev: mode === 'jev' ? jev : null,
+    jev: mode === 'direct' ? null : jev,
     userText: () => session?.userText ?? '',
   });
   session = new LiveSession({ config: { ...base, toolMode: mode }, toolset });
@@ -83,12 +83,12 @@ async function runCase(mode, c) {
     await session.start();
     await new Promise((r) => (session.state === 'open' ? r() : session.once('state', r)));
     tSent = performance.now();
-    session.sendText(c.say);
+    await session.sendText(c.say); // jev_pre'de Jev bekleniyor: bu süre de gecikmeye dahil (dürüst ölçüm)
   });
   session.stop();
   timers.clear();
 
-  const executed = traces.find((t) => t.skill && t.name !== 'arac_bul' && t.name !== 'get_current_time');
+  const executed = traces.find((t) => t.skill && !['arac_bul', 'on_secim', 'get_current_time'].includes(t.name));
   const jevTrace = traces.find((t) => t.jev);
   const textTokens = usage.reduce((s, u) => s + (u.promptTokensDetails?.find((d) => d.modality === 'TEXT')?.tokenCount ?? 0), 0);
   return {
@@ -99,7 +99,8 @@ async function runCase(mode, c) {
     jevPick: jevTrace ? norm(jevTrace.jev.choice) : undefined,
     jevConf: jevTrace?.jev.confidence,
     jevMs: jevTrace?.jev.ms,
-    argError: traces.some((t) => t.response?.hata) ? traces.find((t) => t.response?.hata).response.hata : null,
+    argError: traces.find((t) => t.response?.hata && t.name !== 'on_secim')?.response.hata ?? null,
+    jevError: traces.find((t) => t.response?.hata && t.name === 'on_secim')?.response.hata ?? null,
     msToTool: tFirstTool ? Math.round(tFirstTool - tSent) : null,
     msToAudio: tFirstAudio ? Math.round(tFirstAudio - tSent) : null,
     geminiTextTokens: textTokens,
@@ -128,12 +129,19 @@ async function endToEnd(modes) {
         uctan_uca_isabet: `${rows.filter((r) => r.ok).length}/${rows.length} (${pct(rows.filter((r) => r.ok).length, rows.length)})`,
         araclilarda: pct(tool.filter((r) => r.ok).length, tool.length),
         tuzaklarda: pct(trap.filter((r) => r.ok).length, trap.length),
+        ...(mode === 'jev_pre' && {
+          jev_secimi_dogru: pct(rows.filter((r) => r.jevPick !== undefined && r.jevPick === r.expect).length, rows.filter((r) => r.jevPick !== undefined).length),
+          oneri_verilen: rows.filter((r) => r.jevPick).length,
+          oneriye_uyan_gemini: `${rows.filter((r) => r.jevPick && r.executed === r.jevPick).length}/${rows.filter((r) => r.jevPick).length}`,
+          jev_ms_medyan: median(rows.map((r) => r.jevMs).filter((x) => x != null)),
+        }),
         ...(mode === 'jev' && {
           jev_secimi_dogru: pct(rows.filter((r) => r.jevPick !== undefined && r.jevPick === r.expect).length, rows.filter((r) => r.jevPick !== undefined).length),
           gemini_arac_bul_cagirdi: `${rows.filter((r) => r.jevPick !== undefined).length}/${rows.length}`,
           jev_ms_medyan: median(rows.map((r) => r.jevMs).filter((x) => x != null)),
         }),
         arguman_hatasi: rows.filter((r) => r.argError).length,
+        jev_hatasi: rows.filter((r) => r.jevError).length,
         ilk_ses_ms_medyan: median(msA),
         ilk_ses_ms_medyan_aracli: median(msAT),
         ilk_ses_ms_p95: p95(msA),
@@ -156,7 +164,7 @@ const report = { tarih: new Date().toISOString(), model: base.model, jev_model: 
 if (flag('jev-only')) {
   report.jev_only = await jevOnly();
 } else {
-  report.uctan_uca = await endToEnd(opt('modes', 'direct,jev').split(','));
+  report.uctan_uca = await endToEnd(opt('modes', 'direct,jev,jev_pre').split(','));
 }
 report.jev_harcama_usd = +(ledger.snapshot().total_usd - spentBefore).toFixed(6);
 report.jev_toplam_usd = ledger.snapshot().total_usd;

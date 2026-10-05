@@ -99,7 +99,11 @@ const pctf = (x) => `%${Math.round(x * 100)}`;
 const usd = (x) => `$${x >= 0.01 ? x.toFixed(2) : x.toPrecision(2)}`;
 
 function chipText(t) {
-  if (t.jev) return t.jev.choice === 'hicbiri' ? 'Jev → araç yok' : `Jev → ${label(t.jev.choice)} (${pctf(t.jev.confidence)})`;
+  if (t.jev) {
+    const who = t.name === 'on_secim' ? 'Jev ön-seçim' : 'Jev';
+    return t.jev.choice === 'hicbiri' ? `${who} → araç yok` : `${who} → ${label(t.jev.choice)} (${pctf(t.jev.confidence)})`;
+  }
+  if (t.response?.hata && t.name === 'on_secim') return `Jev ulaşılamadı ✗`;
   const tail = t.response?.hata ? ' ✗' : t.dryRun && t.response?.kuru ? ' (kuru)' : '';
   return `araç: ${label(t.skill ?? t.name)}${tail}`;
 }
@@ -355,7 +359,7 @@ const lab = (() => {
   for (const b of el.seg.children) {
     b.addEventListener('click', async () => {
       if (b.dataset.mode === info?.toolMode) return;
-      if (b.dataset.mode === 'jev' && !info?.hasJevKey) return meta('TYPESAFE_API_KEY yok — .env dosyasına ekle.', true);
+      if (b.dataset.mode !== 'direct' && !info?.hasJevKey) return meta('TYPESAFE_API_KEY yok — .env dosyasına ekle.', true);
       meta(conn === 'idle' ? 'Kaydediliyor…' : 'Kip değişiyor, oturum yeniden başlıyor…');
       const r = await window.atlas.saveSettings({ toolMode: b.dataset.mode });
       if (!r.ok) meta(r.error, true);
@@ -371,9 +375,11 @@ const lab = (() => {
   function setInfo(i) {
     info = i;
     for (const b of el.seg.children) b.setAttribute('aria-checked', String(b.dataset.mode === i.toolMode));
-    meta(i.toolMode === 'jev'
-      ? 'Jev kipi: Gemini yalnız arac_bul + arac_calistir görür; aracı Jev seçer.'
-      : 'Doğrudan kip: Gemini dört aracın tanımını görür ve kendisi seçer.');
+    meta({
+      direct: 'Doğrudan: Gemini dört aracın tanımını görür ve kendisi seçer.',
+      jev: 'Jev: Gemini önce arac_bul der, aracı Jev seçer, sonra arac_calistir (iki tur).',
+      jev_pre: 'Ön-seçim: Jev cümleye Gemini\'den önce bakar, öneriyi mesaja ekler (tek tur). Şimdilik yalnız yazılı girişte.',
+    }[i.toolMode] ?? i.toolMode);
     setBudget(i.cost?.jev);
   }
 
@@ -413,13 +419,13 @@ const lab = (() => {
     if (t.jev) {
       stats.jevMs.push(t.jev.ms);
       stats.jevConf.push(t.jev.confidence);
-      add('tag', 'JEV');
+      add('tag', t.name === 'on_secim' ? 'ÖN-SEÇİM' : 'JEV');
       add('skill', t.jev.choice === 'hicbiri' ? 'hiçbiri' : label(t.jev.choice));
       add('num', `güven ${pctf(t.jev.confidence)} · ${t.jev.ms} ms · ${t.jev.tokens} tok · ${usd(t.jev.usd)} · ${time}`);
       e.append(row);
       const said = document.createElement('div');
       said.className = 'said';
-      said.textContent = `“${t.jev.userText || '(ham cümle yok)'}” → özet: “${t.args?.ihtiyac ?? ''}”`;
+      said.textContent = `“${t.jev.userText || '(ham cümle yok)'}”${t.args?.ihtiyac ? ` → Gemini'nin özeti: “${t.args.ihtiyac}”` : ' (ön-seçim, Gemini\'den önce)'}`;
       e.append(said, probBar(t.jev.probabilities));
     } else {
       add('tag', t.name === 'arac_calistir' ? 'ÇALIŞTIR' : t.mode === 'direct' ? 'DOĞRUDAN' : 'ARAÇ');

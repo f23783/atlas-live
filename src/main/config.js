@@ -47,8 +47,8 @@ export function loadConfig(env = loadEnv(), settings = {}) {
     // tamamını faturaladığı için maliyetin tavanı bu: 8k ≈ son ~5 dk konuşma.
     contextLimit: settings.contextLimit ?? (Number(env.ATLAS_CONTEXT_LIMIT) || 8000),
     usdTryFallback: Number(env.ATLAS_USD_TRY) || 49.06,
-    // Araç seçimi: 'direct' (Gemini tüm araçları görür) | 'jev' (Jev seçer). Bkz. tools/index.js
-    toolMode: settings.toolMode ?? (env.ATLAS_TOOL_MODE === 'jev' ? 'jev' : 'direct'),
+    // Araç seçimi: 'direct' (Gemini seçer) | 'jev' (arac_bul→Jev, iki tur) | 'jev_pre' (Jev önceden bakar). Bkz. tools/index.js
+    toolMode: settings.toolMode ?? (['jev', 'jev_pre'].includes(env.ATLAS_TOOL_MODE) ? env.ATLAS_TOOL_MODE : 'direct'),
     typesafeKey: env.TYPESAFE_API_KEY || '',
     // Fido'nun Jev için verdiği toplam bütçe (2026-10-05): $10. Defter: USER_DATA/jev-usage.json
     jevBudgetUsd: Number(env.ATLAS_JEV_BUDGET_USD) || 10,

@@ -57,7 +57,7 @@ export class LiveSession extends EventEmitter {
   connectConfig() {
     return {
       responseModalities: [Modality.AUDIO],
-      systemInstruction: this.#cfg.systemInstruction,
+      systemInstruction: [this.#cfg.systemInstruction, this.#toolset.systemNote].filter(Boolean).join('\n'),
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: this.#cfg.voice } } },
       inputAudioTranscription: {},
       outputAudioTranscription: {},
@@ -191,9 +191,19 @@ export class LiveSession extends EventEmitter {
     return this.#sendRaw(`[Sistem bildirimi — kullanıcı söylemedi] ${text}`);
   }
 
-  /** Kullanıcının yazdığı metin (yazılı girişte transkript gelmez; Jev için tura kaydedilir). */
-  sendText(text) {
-    const ok = this.#sendRaw(text);
+  /**
+   * Kullanıcının yazdığı metin (yazılı girişte transkript gelmez; Jev için tura kaydedilir).
+   * jev_pre kipinde önce Jev'e sorulur; öneri varsa aynı mesaja eklenir (Gemini cevaba başlamadan görür).
+   */
+  async sendText(text) {
+    if (this.state !== 'open' || !this.#session || !text?.trim()) return false;
+    let msg = text;
+    if (this.#toolset.preRoute) {
+      const { note, trace } = await this.#toolset.preRoute(String(text));
+      this.emit('tool', { phase: 'result', traces: [trace] });
+      if (note) msg = `${text}\n\n${note}`;
+    }
+    const ok = this.#sendRaw(msg);
     if (ok) this.#userText = String(text);
     return ok;
   }

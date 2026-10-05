@@ -15,7 +15,9 @@ const MIN_CONFIDENCE = 0.5; // altında Jev "emin değilim" der; tahmin yürütm
 /**
  * Oturumun araç seti.
  *   mode 'direct': Gemini tüm yeteneklerin tanımını görür ve doğrudan çağırır.
- *   mode 'jev'   : Gemini yalnız arac_bul + arac_calistir görür; hangi aracın gerektiğine Jev karar verir.
+ *   mode 'jev'   : Gemini yalnız arac_bul + arac_calistir görür; hangi aracın gerektiğine Jev karar verir (iki tur).
+ *   mode 'jev_pre': Jev kullanıcının cümlesine Gemini'den ÖNCE bakar; araç gerekiyorsa aynı mesaja öneri notu
+ *                  (araç + şema) eklenir, Gemini yalnız arac_calistir görür (tek tur). preRoute() bunu yapar.
  * run() modelin göreceği cevabı ve UI/test için `trace`'i ayrı döner.
  * dryRun: boolean ya da () => boolean; açıkken değiştiren araçlar (medya, zamanlayıcı) yalnız ne yapacağını söyler.
  */
@@ -24,8 +26,33 @@ export function buildToolset({ mode = 'direct', skills, jev, dryRun = false, use
   const base = [clock];
   const isDry = typeof dryRun === 'function' ? dryRun : () => dryRun; // test panelinden anlık açılıp kapanabilir
 
-  const routed = mode === 'jev' ? jevRouter({ skills, byName, jev, userText }) : null;
-  const declarations = [...base.map((t) => t.declaration), ...(routed ? routed.declarations : skills.map((s) => s.declaration))];
+  const routed = mode === 'jev' || mode === 'jev_pre' ? jevRouter({ skills, byName, jev, userText }) : null;
+  const routedDecl = mode === 'jev_pre' ? routed.declarations.filter((d) => d.name === 'arac_calistir') : routed?.declarations;
+  const declarations = [...base.map((t) => t.declaration), ...(routed ? routedDecl : skills.map((s) => s.declaration))];
+
+  /**
+   * jev_pre: kullanıcının cümlesi için Jev'e sor; araç gerekiyorsa Gemini'ye gidecek öneri notunu döner.
+   * @returns {{ note: string|null, trace }}
+   */
+  async function preRoute(text) {
+    const trace = { name: 'on_secim', args: { cumle: text }, mode, dryRun: isDry() };
+    try {
+      const a = await pickTool({ jev, skills, said: text, summary: null });
+      trace.jev = { ...a, userText: text };
+      trace.ms = a.ms;
+      if (a.choice === NONE || a.confidence < MIN_CONFIDENCE) return { note: null, trace };
+      const s = byName.get(a.choice);
+      trace.skill = s.name;
+      const note =
+        `[Araç önerisi — sistemden, kullanıcı yazmadı] Bu istek için "${s.name}" aracı uygun: ${s.declaration.description} ` +
+        `arac_calistir ile çağır: ad="${s.name}", argumanlar_json bu şemaya uyan JSON: ${JSON.stringify(s.declaration.parameters ?? {})}. ` +
+        'İstek açıkça başka bir şeyse öneriyi yok say.';
+      return { note, trace };
+    } catch (err) {
+      trace.response = { hata: String(err?.message ?? err) }; // Jev yoksa öneri yok; konuşma sürer
+      return { note: null, trace };
+    }
+  }
 
   async function run(fc) {
     const t0 = performance.now();
@@ -50,7 +77,12 @@ export function buildToolset({ mode = 'direct', skills, jev, dryRun = false, use
     return { response, trace };
   }
 
-  return { mode, declarations, run };
+  const systemNote = mode === 'jev_pre'
+    ? 'Kullanıcının mesajında [Araç önerisi] notu varsa ve öneri isteğe uyuyorsa, tahmin yürütmeden hemen arac_calistir ile o aracı kullan. ' +
+      'Not yoksa saat dışında araç kullanma; bu notu kullanıcıya okuma.'
+    : null;
+
+  return { mode, declarations, run, systemNote, preRoute: mode === 'jev_pre' ? preRoute : null };
 }
 
 function jevRouter({ skills, byName, jev, userText }) {
@@ -69,7 +101,7 @@ function jevRouter({ skills, byName, jev, userText }) {
     },
     {
       name: 'arac_calistir',
-      description: 'arac_bul\'un önerdiği aracı çalıştırır. Parametreleri arac_bul\'un verdiği şemaya göre JSON nesnesi olarak yaz.',
+      description: 'Önerilen aracı (arac_bul cevabından ya da mesajdaki [Araç önerisi] notundan) çalıştırır. Parametreleri verilen şemaya göre JSON nesnesi olarak yaz.',
       parameters: {
         type: 'OBJECT',
         properties: {
