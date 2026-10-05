@@ -1,0 +1,21 @@
+{
+  "name": "atlas-live",
+  "version": "0.1.0",
+  "description": "Gemini Live API ile sesli masaüstü asistanı (Electron)",
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "vitest run",
+    "probe": "node scripts/probe.js"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@google/genai": "^2.27.0"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "vitest": "^5.0.3"
+  }
+}
