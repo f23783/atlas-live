@@ -1,0 +1,6 @@
+# Yalnız Atlas Live şablonunu üretir (diğer bileşenlere dokunmaz).
+[config]
+
+[templates.atlas-live]
+input_path  = "~/.config/matugen/templates/atlas-live.css"
+output_path = "~/.config/matugen/generated/atlas-live.css"
