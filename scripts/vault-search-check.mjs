@@ -1,7 +1,11 @@
 // iPhone Vault.swift arama algoritmasının birebir kopyası: gerçek vault + gerçek Jev ile kalite kontrolü.
 import fs from 'node:fs'; import path from 'node:path';
 import { loadConfig, loadEnv } from '../src/main/config.js';
-const ROOT = '/home/fido/Documents/Ai_cli/FidoOS';
+const ROOT = process.env.VAULT_DIR;
+if (!ROOT) {
+  console.error('VAULT_DIR is required. Set it to the directory containing the Markdown vault to check.');
+  process.exit(1);
+}
 const skip = ['📋 Templates/', '.claude/', '.github/', 'CLAUDE.md'];
 const stop = new Set('ve ile bir bu şu ne mi mı mu mü da de ki için gibi çok daha en ben sen benim nasıl neydi var yok olan ama'.split(' '));
 const terms = (s) => new Set(s.toLocaleLowerCase('tr').split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !stop.has(w)).map((w) => [...w].slice(0, 5).join('')));
